@@ -10,6 +10,7 @@ FetchContent_MakeAvailable(googletest)
 add_executable(rpi_tests
     test_event_bus.cpp
     test_threshold_monitor.cpp
+    test_config_loader.cpp
 )
 
 target_link_libraries(rpi_tests PRIVATE

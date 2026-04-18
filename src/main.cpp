@@ -1,4 +1,5 @@
 #include "monitoring/Config.hpp"
+#include "monitoring/ConfigLoader.hpp"
 #include "monitoring/ThresholdMonitor.hpp"
 #include "sensors/DS18B20Reader.hpp"
 #include "sensors/SimulatedSensor.hpp"
@@ -26,18 +27,22 @@ static auto make_sensor(const rpi::Config& cfg) -> std::unique_ptr<rpi::ISensorR
     return std::make_unique<rpi::SimulatedSensor>("sim-0");
 }
 
-int main()
+int main(int argc, char* argv[])
 {
     std::signal(SIGINT,  signal_handler);
     std::signal(SIGTERM, signal_handler);
 
-    rpi::Config config{
-        .sensor_type    = rpi::SensorType::Simulated,
-        .threshold_warn = 50.0f,
-        .threshold_crit = 65.0f,
-        .hysteresis     = 2.0f,
-        .poll_interval  = std::chrono::milliseconds{2000},
-    };
+    const std::string config_path = (argc > 1) ? argv[1] : "config.json";
+
+    auto result = rpi::load_config(config_path);
+    if (!result) {
+        std::println(stderr, "[main] Config error: {}", result.error());
+        std::println(stderr, "[main] Usage: {} [config.json]", argv[0]);
+        return 1;
+    }
+
+    const rpi::Config config = *result;
+    std::println("[main] Config loaded from '{}'", config_path);
 
     auto sensor = make_sensor(config);
 
