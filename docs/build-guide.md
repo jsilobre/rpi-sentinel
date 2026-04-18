@@ -82,9 +82,11 @@ ctest --test-dir build --output-on-failure
 
 Expected output (simulated sensor):
 ```
-[main] Monitor started. Press Ctrl+C to stop.
-[2025-04-18 14:32:01] [EXCEEDED]  sensor=sim-0 temp=68.3°C threshold=65.0°C
-[2025-04-18 14:32:03] [RECOVERED] sensor=sim-0 temp=62.8°C threshold=65.0°C
+[main] Config loaded from 'config.json'
+[MonitoringHub] 1 monitor(s) configured.
+[main] Monitors started. Press Ctrl+C to stop.
+[2025-04-18 14:32:01] [EXCEEDED]  sensor=sim-temp temperature=68.3 threshold=65.0
+[2025-04-18 14:32:03] [RECOVERED] sensor=sim-temp temperature=62.8 threshold=65.0
 ```
 
 ---
@@ -179,14 +181,19 @@ cat /sys/bus/w1/devices/28-xxxxxxxxxx/temperature
 # 23562  ← millidegrees Celsius (= 23.562 °C)
 ```
 
-Set `device_path` in the config:
+Set `device_path` in `config.json`:
 
-```cpp
-Config config{
-    .sensor_type = rpi::SensorType::DS18B20,
-    .device_path = "/sys/bus/w1/devices/28-xxxxxxxxxx/temperature",
-    ...
-};
+```json
+{
+  "sensors": [{
+    "id": "cpu-temp",
+    "type": "ds18b20",
+    "device_path": "/sys/bus/w1/devices/28-xxxxxxxxxx/temperature",
+    "metric": "temperature",
+    "threshold_warn": 60.0,
+    "threshold_crit": 80.0
+  }]
+}
 ```
 
 ---

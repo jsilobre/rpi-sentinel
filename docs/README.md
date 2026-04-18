@@ -11,15 +11,18 @@ Technical reference for current and future development.
 ## Quick overview
 
 ```
-Physical / simulated sensor
-        │
-        ▼
-  ThresholdMonitor  ──(std::jthread)──►  periodic reading
-        │
-        ▼  (threshold crossed)
-    EventBus  ──►  LogAlert / future handlers
+config.json
+      │
+      ▼
+ MonitoringHub ──creates──► ThresholdMonitor[0] ──(jthread)──► ISensorReader[0]
+               ──creates──► ThresholdMonitor[1] ──(jthread)──► ISensorReader[1]
+               ...
+                                    │
+                                    │ dispatch(SensorEvent)
+                                    ▼
+                               EventBus ──► LogAlert / WebAlert / ...
 ```
 
 The project is structured into **4 independent layers** (`sensors`, `events`, `monitoring`, `alerts`)
-connected through abstract interfaces, making it easy to add a new sensor or a new alert type
-without touching the rest of the code.
+connected through abstract interfaces. `MonitoringHub` orchestrates N sensors and monitors
+from the JSON config — `main.cpp` only bootstraps and waits for a shutdown signal.
