@@ -39,8 +39,10 @@ auto load_config(const std::filesystem::path& path) -> std::expected<Config, std
         if (j.contains("threshold_warn"))   cfg.threshold_warn  = j["threshold_warn"].get<float>();
         if (j.contains("threshold_crit"))   cfg.threshold_crit  = j["threshold_crit"].get<float>();
         if (j.contains("hysteresis"))       cfg.hysteresis      = j["hysteresis"].get<float>();
-        if (j.contains("poll_interval_ms")) cfg.poll_interval   = std::chrono::milliseconds{
+        if (j.contains("poll_interval_ms")) cfg.poll_interval = std::chrono::milliseconds{
                                                 j["poll_interval_ms"].get<int>()};
+        if (j.contains("web_enabled")) cfg.web_enabled = j["web_enabled"].get<bool>();
+        if (j.contains("web_port"))    cfg.web_port    = j["web_port"].get<uint16_t>();
 
         if (cfg.threshold_warn >= cfg.threshold_crit) {
             return std::unexpected("threshold_warn must be strictly less than threshold_crit");

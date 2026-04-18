@@ -8,6 +8,7 @@ namespace rpi {
 
 void LogAlert::on_event(const ThermalEvent& event)
 {
+    if (event.type == ThermalEvent::Type::Reading) return;
     auto time_t = std::chrono::system_clock::to_time_t(event.timestamp);
     char time_buf[32];
     std::strftime(time_buf, sizeof(time_buf), "%Y-%m-%d %H:%M:%S", std::localtime(&time_t));

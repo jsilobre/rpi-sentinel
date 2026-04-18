@@ -7,6 +7,7 @@ namespace rpi {
 
 struct ThermalEvent {
     enum class Type {
+        Reading,            // lecture périodique normale
         ThresholdExceeded,
         ThresholdRecovered,
     };

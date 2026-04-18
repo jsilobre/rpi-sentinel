@@ -38,6 +38,14 @@ void ThresholdMonitor::run(std::stop_token stop)
         } else {
             float temp = result->temperature_celsius;
 
+            // Lecture normale — utilisée par le dashboard web
+            bus_.dispatch(ThermalEvent{
+                .type        = ThermalEvent::Type::Reading,
+                .temperature = temp,
+                .threshold   = 0.0f,
+                .sensor_id   = result->sensor_id,
+            });
+
             // Critical threshold (highest priority)
             if (!crit_active_ && temp >= config_.threshold_crit) {
                 crit_active_ = true;

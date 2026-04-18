@@ -5,6 +5,9 @@
 #include "sensors/SimulatedSensor.hpp"
 #include "events/EventBus.hpp"
 #include "alerts/LogAlert.hpp"
+#include "web/WebAlert.hpp"
+#include "web/WebState.hpp"
+#include "web/HttpServer.hpp"
 
 #include <csignal>
 #include <memory>
@@ -46,11 +49,19 @@ int main(int argc, char* argv[])
 
     auto sensor = make_sensor(config);
 
+    rpi::WebState web_state;
     rpi::EventBus bus;
     bus.register_handler(std::make_shared<rpi::LogAlert>());
+    bus.register_handler(std::make_shared<rpi::WebAlert>(web_state));
 
     rpi::ThresholdMonitor monitor(*sensor, bus, config);
     monitor.start();
+
+    std::unique_ptr<rpi::HttpServer> http_server;
+    if (config.web_enabled) {
+        http_server = std::make_unique<rpi::HttpServer>(config, web_state);
+        http_server->start();
+    }
 
     std::println("[main] Monitor started. Press Ctrl+C to stop.");
 
@@ -60,5 +71,6 @@ int main(int argc, char* argv[])
 
     std::println("[main] Shutting down...");
     monitor.stop();
+    if (http_server) http_server->stop();
     return 0;
 }

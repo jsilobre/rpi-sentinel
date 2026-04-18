@@ -17,6 +17,8 @@ struct Config {
     float                  threshold_crit  = 80.0f;
     float                  hysteresis      = 2.0f;
     std::chrono::milliseconds poll_interval {5000};
+    bool                       web_enabled  = true;
+    uint16_t                   web_port     = 8080;
 };
 
 } // namespace rpi

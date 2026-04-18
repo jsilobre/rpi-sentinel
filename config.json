@@ -16,5 +16,9 @@
     "hysteresis": 2.0,
 
     // Intervalle de lecture du capteur (millisecondes)
-    "poll_interval_ms": 2000
+    "poll_interval_ms": 2000,
+
+    // Dashboard web
+    "web_enabled": true,
+    "web_port": 8080
 }

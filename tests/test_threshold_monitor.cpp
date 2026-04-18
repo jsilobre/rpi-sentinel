@@ -10,9 +10,11 @@
 
 using namespace rpi;
 
+// Capture uniquement les événements d'alerte (ignore Reading)
 class CapturingHandler final : public IAlertHandler {
 public:
     void on_event(const ThermalEvent& ev) override {
+        if (ev.type == ThermalEvent::Type::Reading) return;
         std::lock_guard lock(mutex_);
         events.push_back(ev);
     }
