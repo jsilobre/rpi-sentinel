@@ -1,32 +1,32 @@
-# Workflow — Flux de données et modèle d'exécution
+# Workflow — Data flow and execution model
 
-## 1. Démarrage de l'application
+## 1. Application startup
 
 ```
 main()
   │
-  ├─ 1. Construit Config (seuils, type de capteur, intervalle)
+  ├─ 1. Builds Config (thresholds, sensor type, interval)
   │
-  ├─ 2. Appelle make_sensor(config)
-  │       └─ retourne DS18B20Reader ou SimulatedSensor
+  ├─ 2. Calls make_sensor(config)
+  │       └─ returns DS18B20Reader or SimulatedSensor
   │
-  ├─ 3. Crée EventBus
+  ├─ 3. Creates EventBus
   │
-  ├─ 4. Enregistre les handlers (LogAlert, ...)
+  ├─ 4. Registers handlers (LogAlert, ...)
   │       └─ bus.register_handler(...)
   │
-  ├─ 5. Crée ThresholdMonitor(sensor, bus, config)
+  ├─ 5. Creates ThresholdMonitor(sensor, bus, config)
   │
   ├─ 6. monitor.start()
-  │       └─ lance std::jthread → run(stop_token)
+  │       └─ launches std::jthread → run(stop_token)
   │
-  └─ 7. Boucle principale : attend SIGINT / SIGTERM
-          └─ monitor.stop() → join du thread
+  └─ 7. Main loop: waits for SIGINT / SIGTERM
+          └─ monitor.stop() → joins the thread
 ```
 
 ---
 
-## 2. Cycle de polling (thread de monitoring)
+## 2. Polling cycle (monitoring thread)
 
 ```
 ┌─────────────────────────────────────────────────────────┐
@@ -36,9 +36,9 @@ main()
 │    │                                                    │
 │    ├─ sensor_.read()                                    │
 │    │    ├─ OK  → SensorReading { temp, sensor_id }      │
-│    │    └─ Err → log erreur, skip cycle                 │
+│    │    └─ Err → log error, skip cycle                  │
 │    │                                                    │
-│    ├─ Évaluation seuil CRITIQUE                         │
+│    ├─ Evaluate CRITICAL threshold                       │
 │    │    ├─ temp ≥ threshold_crit  &&  !crit_active_     │
 │    │    │    → dispatch(ThresholdExceeded, crit)        │
 │    │    │    → crit_active_ = true                      │
@@ -46,7 +46,7 @@ main()
 │    │         → dispatch(ThresholdRecovered, crit)       │
 │    │         → crit_active_ = false                     │
 │    │                                                    │
-│    ├─ Évaluation seuil WARNING (si !crit_active_)       │
+│    ├─ Evaluate WARNING threshold (if !crit_active_)     │
 │    │    ├─ temp ≥ threshold_warn  &&  !warn_active_     │
 │    │    │    → dispatch(ThresholdExceeded, warn)        │
 │    │    │    → warn_active_ = true                      │
@@ -60,7 +60,7 @@ main()
 
 ---
 
-## 3. Cycle de vie d'un ThermalEvent
+## 3. ThermalEvent lifecycle
 
 ```
 ThresholdMonitor                EventBus               LogAlert
@@ -72,94 +72,94 @@ ThresholdMonitor                EventBus               LogAlert
       │◄────────────────────────────│                      │
 ```
 
-Le dispatch est **synchrone** : `on_event()` est appelé dans le thread de monitoring.
-Les handlers doivent donc être non-bloquants ou déléguer à leur propre thread.
+Dispatch is **synchronous**: `on_event()` is called in the monitoring thread.
+Handlers must therefore be non-blocking or delegate work to their own thread.
 
 ---
 
-## 4. Modèle de threading
+## 4. Threading model
 
 ```
-Thread principal                Thread de monitoring
+Main thread                     Monitoring thread
       │                               │
       │  monitor.start()              │
       │ ─────────────────────────►    │  run(stop_token)
-      │                               │    └─ boucle polling
-      │  (attend signal)              │
+      │                               │    └─ polling loop
+      │  (waiting for signal)         │
       │                               │
       │  g_running = 0 (SIGINT)       │
       │  monitor.stop()               │
       │    └─ request_stop()  ───────►│  stop_requested() = true
-      │    └─ join()          ───────►│  (fin propre du thread)
+      │    └─ join()          ───────►│  (clean thread exit)
       │◄──────────────────────────────│
       │  return 0
 ```
 
-**Synchronisation EventBus** : le `std::mutex` de l'EventBus protège l'accès concurrent
-à la liste des handlers (enregistrement possible depuis le thread principal pendant que
-le monitoring dispatche).
+**EventBus synchronization**: the `std::mutex` in EventBus guards concurrent access
+to the handler list (registration from the main thread is safe while the monitoring
+thread is dispatching).
 
 ---
 
-## 5. Gestion des erreurs de lecture capteur
+## 5. Sensor read error handling
 
 ```
-sensor_.read() retourne std::unexpected(SensorError::...)
+sensor_.read() returns std::unexpected(SensorError::...)
          │
          ▼
 ThresholdMonitor::run()
   └─ std::println("[ThresholdMonitor] read error: {}", ...)
-  └─ skip → sleep → retry au prochain cycle
+  └─ skip → sleep → retry on next cycle
 ```
 
-Les erreurs transitoires (bruit sur le bus 1-Wire) sont ignorées silencieusement.
-Pour une gestion plus robuste (n erreurs consécutives → événement d'erreur), voir les
-évolutions possibles en section 6.
+Transient errors (e.g. 1-Wire bus noise) are silently skipped.
+For more robust handling (N consecutive errors → error event), see the possible
+evolutions in section 8 of workflow.md.
 
 ---
 
-## 6. Hystérésis — exemple numérique
+## 6. Hysteresis — numerical example
 
 ```
-Config : threshold_warn=50, threshold_crit=65, hysteresis=2
+Config: threshold_warn=50, threshold_crit=65, hysteresis=2
 
-Temps   Temp   warn_active  crit_active  Événement dispatché
-  0     45°C       false        false     —
-  1     52°C       true         false     ThresholdExceeded (warn, 52°C)
-  2     67°C       true         true      ThresholdExceeded (crit, 67°C)
-  3     64°C       true         true      — (pas encore sous 65-2=63)
-  4     62°C       true         false     ThresholdRecovered (crit, 62°C)
-  5     49°C       true         false     — (pas encore sous 50-2=48)
-  6     47°C       false        false     ThresholdRecovered (warn, 47°C)
+Time  Temp   warn_active  crit_active  Event dispatched
+  0   45°C       false        false     —
+  1   52°C       true         false     ThresholdExceeded (warn, 52°C)
+  2   67°C       true         true      ThresholdExceeded (crit, 67°C)
+  3   64°C       true         true      — (not yet below 65-2=63)
+  4   62°C       true         false     ThresholdRecovered (crit, 62°C)
+  5   49°C       true         false     — (not yet below 50-2=48)
+  6   47°C       false        false     ThresholdRecovered (warn, 47°C)
 ```
 
 ---
 
-## 7. Sélection du capteur au runtime
+## 7. Runtime sensor selection
 
-La factory `make_sensor()` dans `main.cpp` instancie le bon type selon `Config::sensor_type` :
+The `make_sensor()` factory in `main.cpp` instantiates the correct type based on `Config::sensor_type`:
 
 ```
 Config::sensor_type
    │
    ├─ SensorType::Simulated  →  SimulatedSensor("sim-0")
-   │                               └─ sinusoïde : base=40°C, amplitude=30°C, période=60s
+   │                               └─ sinusoidal: base=40°C, amplitude=30°C, period=60s
    │
    └─ SensorType::DS18B20    →  DS18B20Reader(config.device_path)
-                                  └─ lit /sys/bus/w1/devices/<id>/temperature
+                                  └─ reads /sys/bus/w1/devices/<id>/temperature
 ```
 
-Pour changer de capteur : modifier `Config::sensor_type` et, si nécessaire, `Config::device_path`.
+To switch sensor: update `Config::sensor_type` and, if needed, `Config::device_path`.
 
 ---
 
-## 8. Évolutions possibles
+## 8. Possible evolutions
 
-| Besoin | Approche recommandée |
+| Need | Recommended approach |
 |---|---|
-| Plusieurs capteurs simultanés | Un `ThresholdMonitor` par capteur, même `EventBus` |
-| Alerte email / MQTT | Nouvelle classe `IAlertHandler`, enregistrée dans `main()` |
-| Persistance des mesures | Handler dédié qui écrit dans une base SQLite ou InfluxDB |
-| N erreurs consécutives → alerte | Compteur dans `ThresholdMonitor::run()`, nouvel enum dans `ThermalEvent::Type` |
-| Configuration par fichier | Parser JSON/TOML → remplir `Config` avant de créer le monitor |
-| Interface web temps réel | Handler qui publie via WebSocket (ex. Boost.Beast) |
+| Multiple simultaneous sensors | One `ThresholdMonitor` per sensor, shared `EventBus` |
+| Email / MQTT alert | New `IAlertHandler` class registered in `main()` |
+| Measurement persistence | Dedicated handler writing to SQLite or InfluxDB |
+| N consecutive errors → alert | Counter in `ThresholdMonitor::run()`, new enum in `ThermalEvent::Type` |
+| File-based configuration | JSON/TOML parser → populate `Config` before creating the monitor |
+| Real-time web interface | Handler publishing via WebSocket (e.g. Boost.Beast) |

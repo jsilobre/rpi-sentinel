@@ -7,9 +7,9 @@
 
 namespace rpi {
 
-// Charge la configuration depuis un fichier JSON.
-// Retourne Config avec les valeurs du fichier, ou une description d'erreur.
-// Les champs absents du JSON prennent leur valeur par défaut (définie dans Config).
+// Loads configuration from a JSON file.
+// Returns Config populated from the file, or an error description.
+// Fields absent from the JSON fall back to their default values (defined in Config).
 auto load_config(const std::filesystem::path& path) -> std::expected<Config, std::string>;
 
 } // namespace rpi

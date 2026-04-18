@@ -4,7 +4,7 @@
 #include <print>
 #include <sstream>
 
-// httplib inclus en SYSTEM pour éviter les warnings sur ses headers
+// httplib included as SYSTEM to suppress warnings from its headers
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wshadow"
 #pragma GCC diagnostic ignored "-Wold-style-cast"
@@ -17,7 +17,7 @@ namespace rpi {
 // ─── Dashboard HTML embarqué ──────────────────────────────────────────────────
 
 static constexpr std::string_view DASHBOARD_HTML = R"HTML(<!DOCTYPE html>
-<html lang="fr">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -63,7 +63,7 @@ static constexpr std::string_view DASHBOARD_HTML = R"HTML(<!DOCTYPE html>
   <div class="grid">
 
     <div class="card">
-      <h2>Température</h2>
+      <h2>Temperature</h2>
       <div>
         <span class="temp-value" id="temp">--</span>
         <span class="temp-unit">°C</span>
@@ -73,14 +73,14 @@ static constexpr std::string_view DASHBOARD_HTML = R"HTML(<!DOCTYPE html>
     </div>
 
     <div class="card chart-card">
-      <h2>Historique</h2>
+      <h2>History</h2>
       <canvas id="chart" height="220"></canvas>
     </div>
 
     <div class="card">
-      <h2>Alertes récentes</h2>
+      <h2>Recent Alerts</h2>
       <ul class="event-list" id="events">
-        <li><span class="empty">Aucune alerte</span></li>
+        <li><span class="empty">No alerts</span></li>
       </ul>
     </div>
 
@@ -93,7 +93,7 @@ const chart = new Chart(document.getElementById('chart').getContext('2d'), {
   data: {
     labels: [],
     datasets: [{
-      label: 'Température (°C)',
+      label: 'Temperature (°C)',
       data: [],
       borderColor: '#38bdf8',
       backgroundColor: 'rgba(56,189,248,0.08)',
@@ -126,7 +126,7 @@ async function refresh() {
     if (d.has_reading) {
       document.getElementById('temp').textContent = d.current_temperature.toFixed(1);
       const s = document.getElementById('status');
-      s.textContent = d.status === 'ok' ? 'OK' : d.status === 'warn' ? 'Warning' : 'Critique';
+      s.textContent = d.status === 'ok' ? 'OK' : d.status === 'warn' ? 'Warning' : 'Critical';
       s.className = 'status ' + d.status;
     }
 
@@ -136,20 +136,20 @@ async function refresh() {
 
     const ul = document.getElementById('events');
     if (!d.recent_events.length) {
-      ul.innerHTML = '<li><span class="empty">Aucune alerte</span></li>';
+      ul.innerHTML = '<li><span class="empty">No alerts</span></li>';
     } else {
       ul.innerHTML = d.recent_events.map(e => `
         <li>
           <span class="badge ${e.type==='EXCEEDED'?'exceeded':'recovered'}">
-            ${e.type==='EXCEEDED'?'▲ Dépassé':'▼ Rétabli'}
+            ${e.type==='EXCEEDED'?'▲ Exceeded':'▼ Recovered'}
           </span>
-          ${e.temperature.toFixed(1)}°C &nbsp;/&nbsp; seuil ${e.threshold.toFixed(0)}°C
+          ${e.temperature.toFixed(1)}°C &nbsp;/&nbsp; threshold ${e.threshold.toFixed(0)}°C
           <span class="ts">${fmt(e.timestamp)}</span>
         </li>`).join('');
     }
 
     document.getElementById('updated').textContent =
-      'Mis à jour : ' + new Date().toLocaleTimeString();
+      'Updated: ' + new Date().toLocaleTimeString();
   } catch(e) { console.warn('fetch error', e); }
 }
 

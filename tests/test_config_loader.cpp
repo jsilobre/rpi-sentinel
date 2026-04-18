@@ -4,7 +4,7 @@
 #include <filesystem>
 #include <fstream>
 
-// Écrit un fichier JSON temporaire et retourne son chemin.
+// Writes a temporary JSON file and returns its path.
 static std::filesystem::path write_tmp(const std::string& content)
 {
     auto path = std::filesystem::temp_directory_path() / "rpi_test_config.json";

@@ -10,7 +10,7 @@
 
 using namespace rpi;
 
-// Capture uniquement les événements d'alerte (ignore Reading)
+// Captures only alert events (ignores Reading)
 class CapturingHandler final : public IAlertHandler {
 public:
     void on_event(const ThermalEvent& ev) override {

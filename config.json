@@ -1,21 +1,21 @@
 {
-    // Type de capteur : "simulated" ou "ds18b20"
+    // Sensor type: "simulated" or "ds18b20"
     "sensor_type": "simulated",
 
-    // Chemin noyau du DS18B20 (utilisé seulement si sensor_type = "ds18b20")
+    // Kernel path to the DS18B20 device (used only when sensor_type = "ds18b20")
     "device_path": "/sys/bus/w1/devices/28-000000000000/temperature",
 
-    // Seuil d'avertissement (°C) — doit être < threshold_crit
+    // Warning threshold (°C) — must be < threshold_crit
     "threshold_warn": 50.0,
 
-    // Seuil critique (°C)
+    // Critical threshold (°C)
     "threshold_crit": 65.0,
 
-    // Zone tampon anti-oscillation (°C) : un événement RECOVERED n'est envoyé
-    // que lorsque la température redescend sous (seuil - hysteresis)
+    // Anti-oscillation dead band (°C): a RECOVERED event is only dispatched
+    // once the temperature drops below (threshold - hysteresis)
     "hysteresis": 2.0,
 
-    // Intervalle de lecture du capteur (millisecondes)
+    // Sensor polling interval (milliseconds)
     "poll_interval_ms": 2000,
 
     // Dashboard web

@@ -38,7 +38,7 @@ void ThresholdMonitor::run(std::stop_token stop)
         } else {
             float temp = result->temperature_celsius;
 
-            // Lecture normale — utilisée par le dashboard web
+            // Periodic reading — consumed by the web dashboard
             bus_.dispatch(ThermalEvent{
                 .type        = ThermalEvent::Type::Reading,
                 .temperature = temp,
