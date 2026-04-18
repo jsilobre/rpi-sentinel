@@ -1,7 +1,8 @@
 #pragma once
 
 #include "WebState.hpp"
-#include "../monitoring/Config.hpp"
+#include <cstdint>
+#include <memory>
 #include <thread>
 
 namespace httplib { class Server; }
@@ -10,7 +11,7 @@ namespace rpi {
 
 class HttpServer {
 public:
-    HttpServer(const Config& config, const WebState& state);
+    HttpServer(uint16_t port, const WebState& state);
     ~HttpServer();
 
     void start();
@@ -18,12 +19,12 @@ public:
 
 private:
     std::string build_state_json(const WebState::Snapshot& snap) const;
-    std::string compute_status(float temp) const;
+    std::string compute_status(const WebState::Snapshot& snap) const;
 
-    const WebState& state_;
-    Config          config_;
+    const WebState&                  state_;
+    uint16_t                         port_;
     std::unique_ptr<httplib::Server> server_;
-    std::thread     thread_;
+    std::thread                      thread_;
 };
 
 } // namespace rpi

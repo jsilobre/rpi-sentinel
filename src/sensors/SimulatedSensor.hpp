@@ -7,12 +7,14 @@
 namespace rpi {
 
 // Sensor driven by a user-supplied generator function.
-// Default: sinusoidal variation around a base temperature.
+// Default: sinusoidal variation around a base value.
 class SimulatedSensor final : public ISensorReader {
 public:
     using Generator = std::function<float()>;
 
-    explicit SimulatedSensor(std::string id, Generator generator = {});
+    explicit SimulatedSensor(std::string id,
+                             std::string metric    = "temperature",
+                             Generator   generator = {});
 
     auto read() -> std::expected<SensorReading, SensorError> override;
     auto sensor_id() const -> std::string override;
@@ -21,6 +23,7 @@ public:
 
 private:
     std::string sensor_id_;
+    std::string metric_;
     Generator   generator_;
 };
 

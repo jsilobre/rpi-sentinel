@@ -1,6 +1,7 @@
 add_library(monitoring STATIC
     ThresholdMonitor.cpp
     ConfigLoader.cpp
+    MonitoringHub.cpp
 )
 
 target_include_directories(monitoring PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})

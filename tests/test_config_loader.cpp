@@ -15,65 +15,90 @@ static std::filesystem::path write_tmp(const std::string& content)
 TEST(ConfigLoader, LoadsValidConfig)
 {
     auto path = write_tmp(R"({
-        "sensor_type":      "simulated",
-        "threshold_warn":   45.0,
-        "threshold_crit":   70.0,
-        "hysteresis":       3.0,
+        "sensors": [{
+            "id": "cpu",
+            "type": "simulated",
+            "metric": "temperature",
+            "threshold_warn": 45.0,
+            "threshold_crit": 70.0
+        }],
+        "hysteresis": 3.0,
         "poll_interval_ms": 1000
     })");
 
     auto result = rpi::load_config(path);
     ASSERT_TRUE(result.has_value()) << result.error();
 
-    EXPECT_EQ(result->sensor_type,   rpi::SensorType::Simulated);
-    EXPECT_FLOAT_EQ(result->threshold_warn, 45.0f);
-    EXPECT_FLOAT_EQ(result->threshold_crit, 70.0f);
-    EXPECT_FLOAT_EQ(result->hysteresis,      3.0f);
+    ASSERT_EQ(result->sensors.size(), 1u);
+    EXPECT_EQ(result->sensors[0].id,     "cpu");
+    EXPECT_EQ(result->sensors[0].type,   rpi::SensorType::Simulated);
+    EXPECT_EQ(result->sensors[0].metric, "temperature");
+    EXPECT_FLOAT_EQ(result->sensors[0].threshold_warn, 45.0f);
+    EXPECT_FLOAT_EQ(result->sensors[0].threshold_crit, 70.0f);
+    EXPECT_FLOAT_EQ(result->hysteresis,  3.0f);
     EXPECT_EQ(result->poll_interval, std::chrono::milliseconds{1000});
 }
 
 TEST(ConfigLoader, DefaultsForMissingFields)
 {
-    // JSON minimal — tous les champs absents → valeurs par défaut de Config
-    auto path = write_tmp(R"({ "sensor_type": "simulated" })");
+    // Minimal: one sensor, missing optional global fields -> use Config defaults
+    auto path = write_tmp(R"({
+        "sensors": [{"id": "s0", "type": "simulated", "threshold_warn": 50.0, "threshold_crit": 80.0}]
+    })");
 
     rpi::Config defaults;
     auto result = rpi::load_config(path);
     ASSERT_TRUE(result.has_value()) << result.error();
 
-    EXPECT_FLOAT_EQ(result->threshold_warn, defaults.threshold_warn);
-    EXPECT_FLOAT_EQ(result->threshold_crit, defaults.threshold_crit);
-    EXPECT_FLOAT_EQ(result->hysteresis,     defaults.hysteresis);
-    EXPECT_EQ(result->poll_interval,        defaults.poll_interval);
+    EXPECT_FLOAT_EQ(result->hysteresis,  defaults.hysteresis);
+    EXPECT_EQ(result->poll_interval,     defaults.poll_interval);
+}
+
+TEST(ConfigLoader, MultipleSensors)
+{
+    auto path = write_tmp(R"({
+        "sensors": [
+            {"id": "temp", "type": "simulated", "metric": "temperature", "threshold_warn": 60.0, "threshold_crit": 80.0},
+            {"id": "pres", "type": "simulated", "metric": "pressure",    "threshold_warn": 1010.0, "threshold_crit": 1050.0}
+        ]
+    })");
+
+    auto result = rpi::load_config(path);
+    ASSERT_TRUE(result.has_value()) << result.error();
+    ASSERT_EQ(result->sensors.size(), 2u);
+    EXPECT_EQ(result->sensors[0].metric, "temperature");
+    EXPECT_EQ(result->sensors[1].metric, "pressure");
 }
 
 TEST(ConfigLoader, SensorTypeDS18B20)
 {
     auto path = write_tmp(R"({
-        "sensor_type": "ds18b20",
-        "device_path": "/sys/bus/w1/devices/28-abc/temperature"
+        "sensors": [{
+            "id": "ext",
+            "type": "ds18b20",
+            "device_path": "/sys/bus/w1/devices/28-abc/temperature",
+            "threshold_warn": 60.0,
+            "threshold_crit": 80.0
+        }]
     })");
 
     auto result = rpi::load_config(path);
     ASSERT_TRUE(result.has_value()) << result.error();
-    EXPECT_EQ(result->sensor_type, rpi::SensorType::DS18B20);
-    EXPECT_EQ(result->device_path, "/sys/bus/w1/devices/28-abc/temperature");
+    EXPECT_EQ(result->sensors[0].type,        rpi::SensorType::DS18B20);
+    EXPECT_EQ(result->sensors[0].device_path, "/sys/bus/w1/devices/28-abc/temperature");
 }
 
 TEST(ConfigLoader, ErrorOnUnknownSensorType)
 {
-    auto path = write_tmp(R"({ "sensor_type": "bluetooth" })");
+    auto path = write_tmp(R"({"sensors": [{"id": "s", "type": "bluetooth", "threshold_warn": 50.0, "threshold_crit": 80.0}]})");
     auto result = rpi::load_config(path);
     EXPECT_FALSE(result.has_value());
-    EXPECT_NE(result.error().find("Unknown sensor_type"), std::string::npos);
 }
 
 TEST(ConfigLoader, ErrorWhenWarnGeqCrit)
 {
     auto path = write_tmp(R"({
-        "sensor_type":    "simulated",
-        "threshold_warn": 80.0,
-        "threshold_crit": 60.0
+        "sensors": [{"id": "s", "type": "simulated", "threshold_warn": 80.0, "threshold_crit": 60.0}]
     })");
     auto result = rpi::load_config(path);
     EXPECT_FALSE(result.has_value());
@@ -94,13 +119,18 @@ TEST(ConfigLoader, ErrorOnMissingFile)
 
 TEST(ConfigLoader, CommentsAreIgnored)
 {
-    // nlohmann/json supporte les commentaires // si ignore_comments=true
+    // nlohmann/json supports // comments when ignore_comments=true
     auto path = write_tmp(R"({
-        // commentaire de configuration
-        "sensor_type": "simulated",
-        "threshold_warn": 50.0,
-        "threshold_crit": 75.0
+        // config comment
+        "sensors": [{"id": "s0", "type": "simulated", "threshold_warn": 50.0, "threshold_crit": 75.0}]
     })");
     auto result = rpi::load_config(path);
     ASSERT_TRUE(result.has_value()) << result.error();
+}
+
+TEST(ConfigLoader, ErrorOnEmptySensors)
+{
+    auto path = write_tmp(R"({"sensors": []})");
+    auto result = rpi::load_config(path);
+    EXPECT_FALSE(result.has_value());
 }

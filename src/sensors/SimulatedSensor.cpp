@@ -6,8 +6,9 @@
 
 namespace rpi {
 
-SimulatedSensor::SimulatedSensor(std::string id, Generator generator)
+SimulatedSensor::SimulatedSensor(std::string id, std::string metric, Generator generator)
     : sensor_id_(std::move(id))
+    , metric_(std::move(metric))
     , generator_(std::move(generator))
 {
     if (!generator_) {
@@ -18,8 +19,9 @@ SimulatedSensor::SimulatedSensor(std::string id, Generator generator)
 auto SimulatedSensor::read() -> std::expected<SensorReading, SensorError>
 {
     return SensorReading{
-        .temperature_celsius = generator_(),
-        .sensor_id           = sensor_id_,
+        .sensor_id = sensor_id_,
+        .metric    = metric_,
+        .value     = generator_(),
     };
 }
 

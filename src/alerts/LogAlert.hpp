@@ -6,7 +6,7 @@ namespace rpi {
 
 class LogAlert final : public IAlertHandler {
 public:
-    void on_event(const ThermalEvent& event) override;
+    void on_event(const SensorEvent& event) override;
 };
 
 } // namespace rpi

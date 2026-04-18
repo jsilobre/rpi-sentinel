@@ -1,24 +1,31 @@
 {
-    // Sensor type: "simulated" or "ds18b20"
-    "sensor_type": "simulated",
-
-    // Kernel path to the DS18B20 device (used only when sensor_type = "ds18b20")
-    "device_path": "/sys/bus/w1/devices/28-000000000000/temperature",
-
-    // Warning threshold (°C) — must be < threshold_crit
-    "threshold_warn": 50.0,
-
-    // Critical threshold (°C)
-    "threshold_crit": 65.0,
-
-    // Anti-oscillation dead band (°C): a RECOVERED event is only dispatched
-    // once the temperature drops below (threshold - hysteresis)
+    // Global monitoring settings
     "hysteresis": 2.0,
 
     // Sensor polling interval (milliseconds)
     "poll_interval_ms": 2000,
 
-    // Dashboard web
+    // Web dashboard
     "web_enabled": true,
-    "web_port": 8080
+    "web_port": 8080,
+
+    // List of sensors to monitor
+    "sensors": [
+        {
+            // Sensor identifier (used in logs and dashboard)
+            "id": "sim-temp",
+
+            // Sensor type: "simulated" or "ds18b20"
+            "type": "simulated",
+
+            // Physical quantity being measured
+            "metric": "temperature",
+
+            // Warning threshold (must be < threshold_crit)
+            "threshold_warn": 50.0,
+
+            // Critical threshold
+            "threshold_crit": 65.0
+        }
+    ]
 }

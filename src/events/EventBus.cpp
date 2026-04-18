@@ -9,7 +9,7 @@ void EventBus::register_handler(std::shared_ptr<IAlertHandler> handler)
     handlers_.push_back(std::move(handler));
 }
 
-void EventBus::dispatch(const ThermalEvent& event)
+void EventBus::dispatch(const SensorEvent& event)
 {
     std::lock_guard lock(mutex_);
     for (auto& handler : handlers_) {

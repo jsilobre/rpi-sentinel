@@ -2,18 +2,20 @@
 
 namespace rpi {
 
-void WebState::push_reading(float temperature, std::chrono::system_clock::time_point timestamp)
+void WebState::push_reading(const SensorEvent& event)
 {
     std::lock_guard lock(mutex_);
-    current_temperature_ = temperature;
-    has_reading_         = true;
-    history_.push_back({temperature, timestamp});
+    current_value_     = event.value;
+    current_sensor_id_ = event.sensor_id;
+    current_metric_    = event.metric;
+    has_reading_       = true;
+    history_.push_back({event.sensor_id, event.metric, event.value, event.timestamp});
     if (history_.size() > MAX_HISTORY) {
         history_.pop_front();
     }
 }
 
-void WebState::push_alert(const ThermalEvent& event)
+void WebState::push_alert(const SensorEvent& event)
 {
     std::lock_guard lock(mutex_);
     events_.push_front(event);
@@ -26,10 +28,12 @@ WebState::Snapshot WebState::snapshot() const
 {
     std::lock_guard lock(mutex_);
     return Snapshot{
-        .current_temperature = current_temperature_,
-        .has_reading         = has_reading_,
-        .history             = {history_.begin(), history_.end()},
-        .recent_events       = {events_.begin(), events_.end()},
+        .has_reading       = has_reading_,
+        .current_value     = current_value_,
+        .current_sensor_id = current_sensor_id_,
+        .current_metric    = current_metric_,
+        .history           = {history_.begin(), history_.end()},
+        .recent_events     = {events_.begin(), events_.end()},
     };
 }
 

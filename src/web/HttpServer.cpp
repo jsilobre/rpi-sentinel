@@ -14,7 +14,7 @@
 
 namespace rpi {
 
-// ─── Dashboard HTML embarqué ──────────────────────────────────────────────────
+// ─── Embedded dashboard HTML ──────────────────────────────────────────────────
 
 static constexpr std::string_view DASHBOARD_HTML = R"HTML(<!DOCTYPE html>
 <html lang="en">
@@ -37,9 +37,8 @@ static constexpr std::string_view DASHBOARD_HTML = R"HTML(<!DOCTYPE html>
     .temp-value{font-size:5rem;font-weight:700;line-height:1;letter-spacing:-2px}
     .temp-unit{font-size:1.5rem;color:#94a3b8;vertical-align:super}
     .status{display:inline-block;padding:4px 14px;border-radius:9999px;font-size:.75rem;font-weight:700;margin-top:12px;text-transform:uppercase}
-    .ok  {background:#064e3b;color:#34d399}
-    .warn{background:#78350f;color:#fbbf24}
-    .crit{background:#7f1d1d;color:#f87171}
+    .ok   {background:#064e3b;color:#34d399}
+    .alert{background:#7f1d1d;color:#f87171}
     .sensor-id{margin-top:8px;font-size:.75rem;color:#475569}
     .chart-card{grid-column:2;grid-row:1/3}
     @media(max-width:700px){.chart-card{grid-column:1;grid-row:auto}}
@@ -63,10 +62,9 @@ static constexpr std::string_view DASHBOARD_HTML = R"HTML(<!DOCTYPE html>
   <div class="grid">
 
     <div class="card">
-      <h2>Temperature</h2>
+      <h2 id="metric-label">Current Reading</h2>
       <div>
-        <span class="temp-value" id="temp">--</span>
-        <span class="temp-unit">°C</span>
+        <span class="temp-value" id="value">--</span>
       </div>
       <div><span class="status ok" id="status">--</span></div>
       <div class="sensor-id" id="sensor-id"></div>
@@ -93,7 +91,7 @@ const chart = new Chart(document.getElementById('chart').getContext('2d'), {
   data: {
     labels: [],
     datasets: [{
-      label: 'Temperature (°C)',
+      label: 'Value',
       data: [],
       borderColor: '#38bdf8',
       backgroundColor: 'rgba(56,189,248,0.08)',
@@ -109,9 +107,9 @@ const chart = new Chart(document.getElementById('chart').getContext('2d'), {
     interaction: { intersect: false, mode: 'index' },
     scales: {
       x: { ticks: { color:'#475569', maxTicksLimit:8, maxRotation:0 }, grid: { color:'#1e293b' } },
-      y: { ticks: { color:'#475569', callback: v => v+'°C' }, grid: { color:'#334155' } }
+      y: { ticks: { color:'#475569' }, grid: { color:'#334155' } }
     },
-    plugins: { legend:{ display:false }, tooltip:{ callbacks:{ label: ctx => ctx.parsed.y.toFixed(1)+'°C' } } }
+    plugins: { legend:{ display:false }, tooltip:{ callbacks:{ label: ctx => ctx.parsed.y.toFixed(2) } } }
   }
 });
 
@@ -124,14 +122,16 @@ async function refresh() {
     const d = await fetch('/api/state').then(r => r.json());
 
     if (d.has_reading) {
-      document.getElementById('temp').textContent = d.current_temperature.toFixed(1);
+      document.getElementById('value').textContent = d.current_value.toFixed(1);
+      document.getElementById('metric-label').textContent = d.current_metric || 'Current Reading';
+      document.getElementById('sensor-id').textContent = d.current_sensor_id;
       const s = document.getElementById('status');
-      s.textContent = d.status === 'ok' ? 'OK' : d.status === 'warn' ? 'Warning' : 'Critical';
+      s.textContent = d.status === 'ok' ? 'OK' : 'Alert';
       s.className = 'status ' + d.status;
     }
 
-    chart.data.labels                   = d.history.map(h => fmt(h.timestamp));
-    chart.data.datasets[0].data         = d.history.map(h => h.temperature);
+    chart.data.labels           = d.history.map(h => fmt(h.timestamp));
+    chart.data.datasets[0].data = d.history.map(h => h.value);
     chart.update('none');
 
     const ul = document.getElementById('events');
@@ -143,7 +143,7 @@ async function refresh() {
           <span class="badge ${e.type==='EXCEEDED'?'exceeded':'recovered'}">
             ${e.type==='EXCEEDED'?'▲ Exceeded':'▼ Recovered'}
           </span>
-          ${e.temperature.toFixed(1)}°C &nbsp;/&nbsp; threshold ${e.threshold.toFixed(0)}°C
+          ${e.sensor_id} &nbsp;${e.metric}=${e.value.toFixed(1)} &nbsp;/&nbsp; threshold ${e.threshold.toFixed(1)}
           <span class="ts">${fmt(e.timestamp)}</span>
         </li>`).join('');
     }
@@ -160,7 +160,7 @@ setInterval(refresh, 2000);
 </html>
 )HTML";
 
-// ─── Helpers JSON ──────────────────────────────────────────────────────────────
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 static std::string format_iso8601(std::chrono::system_clock::time_point tp)
 {
@@ -174,9 +174,9 @@ static std::string format_iso8601(std::chrono::system_clock::time_point tp)
 
 // ─── HttpServer ────────────────────────────────────────────────────────────────
 
-HttpServer::HttpServer(const Config& config, const WebState& state)
+HttpServer::HttpServer(uint16_t port, const WebState& state)
     : state_(state)
-    , config_(config)
+    , port_(port)
     , server_(std::make_unique<httplib::Server>())
 {}
 
@@ -195,8 +195,8 @@ void HttpServer::start()
     });
 
     thread_ = std::thread([this] {
-        std::println("[HttpServer] Listening on http://0.0.0.0:{}", config_.web_port);
-        server_->listen("0.0.0.0", config_.web_port);
+        std::println("[HttpServer] Listening on http://0.0.0.0:{}", port_);
+        server_->listen("0.0.0.0", static_cast<int>(port_));
     });
 }
 
@@ -206,10 +206,12 @@ void HttpServer::stop()
     if (thread_.joinable()) thread_.join();
 }
 
-std::string HttpServer::compute_status(float temp) const
+std::string HttpServer::compute_status(const WebState::Snapshot& snap) const
 {
-    if (temp >= config_.threshold_crit) return "crit";
-    if (temp >= config_.threshold_warn) return "warn";
+    for (const auto& e : snap.recent_events) {
+        if (e.type == SensorEvent::Type::ThresholdExceeded)  return "alert";
+        if (e.type == SensorEvent::Type::ThresholdRecovered) return "ok";
+    }
     return "ok";
 }
 
@@ -218,16 +220,19 @@ std::string HttpServer::build_state_json(const WebState::Snapshot& snap) const
     std::ostringstream out;
     out << std::boolalpha;
     out << "{\n";
-    out << std::format("  \"has_reading\": {},\n", snap.has_reading);
-    out << std::format("  \"current_temperature\": {:.2f},\n", snap.current_temperature);
-    out << std::format("  \"status\": \"{}\",\n", compute_status(snap.current_temperature));
+    out << std::format("  \"has_reading\": {},\n",        snap.has_reading);
+    out << std::format("  \"current_value\": {:.2f},\n",  snap.current_value);
+    out << std::format("  \"current_sensor_id\": \"{}\",\n", snap.current_sensor_id);
+    out << std::format("  \"current_metric\": \"{}\",\n",    snap.current_metric);
+    out << std::format("  \"status\": \"{}\",\n",         compute_status(snap));
 
     // history
     out << "  \"history\": [";
     for (size_t i = 0; i < snap.history.size(); ++i) {
-        const auto& r = snap.history[i];
-        out << std::format("\n    {{\"temperature\": {:.2f}, \"timestamp\": \"{}\"}}",
-            r.temperature, format_iso8601(r.timestamp));
+        const auto& h = snap.history[i];
+        out << std::format(
+            "\n    {{\"sensor_id\": \"{}\", \"metric\": \"{}\", \"value\": {:.2f}, \"timestamp\": \"{}\"}}",
+            h.sensor_id, h.metric, h.value, format_iso8601(h.timestamp));
         if (i + 1 < snap.history.size()) out << ',';
     }
     out << "\n  ],\n";
@@ -236,12 +241,12 @@ std::string HttpServer::build_state_json(const WebState::Snapshot& snap) const
     out << "  \"recent_events\": [";
     for (size_t i = 0; i < snap.recent_events.size(); ++i) {
         const auto& e = snap.recent_events[i];
-        std::string_view type = (e.type == ThermalEvent::Type::ThresholdExceeded)
+        std::string_view type = (e.type == SensorEvent::Type::ThresholdExceeded)
             ? "EXCEEDED" : "RECOVERED";
         out << std::format(
-            "\n    {{\"type\": \"{}\", \"temperature\": {:.2f}, "
+            "\n    {{\"type\": \"{}\", \"metric\": \"{}\", \"value\": {:.2f}, "
             "\"threshold\": {:.2f}, \"sensor_id\": \"{}\", \"timestamp\": \"{}\"}}",
-            type, e.temperature, e.threshold, e.sensor_id, format_iso8601(e.timestamp));
+            type, e.metric, e.value, e.threshold, e.sensor_id, format_iso8601(e.timestamp));
         if (i + 1 < snap.recent_events.size()) out << ',';
     }
     out << "\n  ]\n}";

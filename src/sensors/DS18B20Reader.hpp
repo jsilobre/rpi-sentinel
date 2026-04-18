@@ -8,7 +8,9 @@ namespace rpi {
 
 class DS18B20Reader final : public ISensorReader {
 public:
-    explicit DS18B20Reader(std::filesystem::path device_path);
+    explicit DS18B20Reader(std::filesystem::path device_path,
+                           std::string           id     = "",
+                           std::string           metric = "temperature");
 
     auto read() -> std::expected<SensorReading, SensorError> override;
     auto sensor_id() const -> std::string override;
@@ -16,6 +18,7 @@ public:
 private:
     std::filesystem::path device_path_;
     std::string           sensor_id_;
+    std::string           metric_;
 };
 
 } // namespace rpi
