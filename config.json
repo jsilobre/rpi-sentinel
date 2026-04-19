@@ -9,6 +9,16 @@
     "web_enabled": true,
     "web_port": 8080,
 
+    // MQTT cloud publishing (HiveMQ Cloud or any MQTT broker)
+    // Fill in your credentials and set "enabled": true to activate
+    "mqtt": {
+        "enabled": false,
+        "broker_url": "ssl://YOUR_CLUSTER.hivemq.cloud:8883",
+        "username": "YOUR_PUBLISHER_USER",
+        "password": "YOUR_PUBLISHER_PASSWORD",
+        "topic_prefix": "rpi"
+    },
+
     // List of sensors to monitor
     "sensors": [
         {

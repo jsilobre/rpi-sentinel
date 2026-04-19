@@ -7,6 +7,10 @@
 #include "web/WebState.hpp"
 #include "web/HttpServer.hpp"
 
+#ifdef ENABLE_MQTT
+#include "alerts/MqttPublisher.hpp"
+#endif
+
 #include <csignal>
 #include <chrono>
 #include <memory>
@@ -41,6 +45,19 @@ int main(int argc, char* argv[])
     bus.register_handler(std::make_shared<rpi::LogAlert>());
     bus.register_handler(std::make_shared<rpi::WebAlert>(web_state));
 
+#ifdef ENABLE_MQTT
+    std::shared_ptr<rpi::MqttPublisher> mqtt_pub;
+    if (config.mqtt.enabled) {
+        try {
+            mqtt_pub = std::make_shared<rpi::MqttPublisher>(config.mqtt);
+            mqtt_pub->connect();
+            bus.register_handler(mqtt_pub);
+        } catch (const std::exception& e) {
+            std::println(stderr, "[main] MQTT error: {}", e.what());
+        }
+    }
+#endif
+
     rpi::MonitoringHub hub(bus, config);
     hub.start();
 
@@ -58,6 +75,9 @@ int main(int argc, char* argv[])
 
     std::println("[main] Shutting down...");
     hub.stop();
+#ifdef ENABLE_MQTT
+    if (mqtt_pub) mqtt_pub->disconnect();
+#endif
     if (http_server) http_server->stop();
     return 0;
 }

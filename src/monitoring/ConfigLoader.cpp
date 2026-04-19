@@ -70,6 +70,15 @@ auto load_config(const std::filesystem::path& path) -> std::expected<Config, std
         if (j.contains("web_enabled"))      cfg.web_enabled   = j["web_enabled"].get<bool>();
         if (j.contains("web_port"))         cfg.web_port      = j["web_port"].get<uint16_t>();
 
+        if (j.contains("mqtt") && j["mqtt"].is_object()) {
+            const auto& m = j["mqtt"];
+            if (m.contains("enabled"))      cfg.mqtt.enabled      = m["enabled"].get<bool>();
+            if (m.contains("broker_url"))   cfg.mqtt.broker_url   = m["broker_url"].get<std::string>();
+            if (m.contains("username"))     cfg.mqtt.username     = m["username"].get<std::string>();
+            if (m.contains("password"))     cfg.mqtt.password     = m["password"].get<std::string>();
+            if (m.contains("topic_prefix")) cfg.mqtt.topic_prefix = m["topic_prefix"].get<std::string>();
+        }
+
         if (cfg.hysteresis < 0.0f)
             return std::unexpected("hysteresis must be >= 0");
         if (cfg.poll_interval.count() <= 0)
