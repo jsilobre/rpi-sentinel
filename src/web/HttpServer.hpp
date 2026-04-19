@@ -19,7 +19,6 @@ public:
 
 private:
     std::string build_state_json(const WebState::Snapshot& snap) const;
-    std::string compute_status(const WebState::Snapshot& snap) const;
 
     const WebState&                  state_;
     uint16_t                         port_;

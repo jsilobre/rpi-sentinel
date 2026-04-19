@@ -30,28 +30,31 @@ static constexpr std::string_view DASHBOARD_HTML = R"HTML(<!DOCTYPE html>
     header h1{font-size:1.4rem;color:#94a3b8}
     .dot{width:10px;height:10px;border-radius:50%;background:#22c55e;animation:pulse 2s infinite}
     @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
-    .grid{display:grid;grid-template-columns:260px 1fr;grid-template-rows:auto auto;gap:16px}
-    @media(max-width:700px){.grid{grid-template-columns:1fr}}
+
+    /* Sensor cards grid — fills columns dynamically */
+    .sensors-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:16px;margin-bottom:16px}
+
     .card{background:#1e293b;border-radius:12px;padding:20px}
-    .card h2{font-size:.75rem;color:#64748b;text-transform:uppercase;letter-spacing:.07em;margin-bottom:16px}
-    .temp-value{font-size:5rem;font-weight:700;line-height:1;letter-spacing:-2px}
-    .temp-unit{font-size:1.5rem;color:#94a3b8;vertical-align:super}
-    .status{display:inline-block;padding:4px 14px;border-radius:9999px;font-size:.75rem;font-weight:700;margin-top:12px;text-transform:uppercase}
+    .card h2{font-size:.75rem;color:#64748b;text-transform:uppercase;letter-spacing:.07em;margin-bottom:12px;display:flex;align-items:center;gap:8px}
+    .metric-tag{background:#0f172a;color:#475569;border-radius:4px;padding:2px 6px;font-size:.65rem;font-weight:600;text-transform:lowercase;letter-spacing:0}
+
+    .sensor-value{font-size:3.5rem;font-weight:700;line-height:1;letter-spacing:-2px}
+    .status{display:inline-block;padding:3px 12px;border-radius:9999px;font-size:.7rem;font-weight:700;margin-top:8px;text-transform:uppercase}
     .ok   {background:#064e3b;color:#34d399}
     .alert{background:#7f1d1d;color:#f87171}
-    .sensor-id{margin-top:8px;font-size:.75rem;color:#475569}
-    .chart-card{grid-column:2;grid-row:1/3}
-    @media(max-width:700px){.chart-card{grid-column:1;grid-row:auto}}
-    canvas{width:100%!important}
+
+    /* Recent alerts */
+    .alerts-card{margin-top:0}
     .event-list{list-style:none}
-    .event-list li{padding:9px 0;border-bottom:1px solid #1e293b;font-size:.825rem;display:flex;align-items:baseline;gap:8px}
+    .event-list li{padding:9px 0;border-bottom:1px solid #0f172a;font-size:.825rem;display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
     .event-list li:last-child{border-bottom:none}
     .badge{padding:2px 8px;border-radius:4px;font-size:.7rem;font-weight:700;white-space:nowrap}
     .exceeded {background:#7f1d1d;color:#f87171}
     .recovered{background:#064e3b;color:#34d399}
+    .event-sensor{color:#94a3b8;font-weight:600;font-size:.75rem}
     .ts{color:#475569;font-size:.75rem;margin-left:auto;white-space:nowrap}
     .empty{color:#475569;font-size:.875rem}
-    .updated{font-size:.7rem;color:#334155;margin-top:16px;text-align:right}
+    .updated{font-size:.7rem;color:#334155;margin-top:12px;text-align:right}
   </style>
 </head>
 <body>
@@ -59,59 +62,79 @@ static constexpr std::string_view DASHBOARD_HTML = R"HTML(<!DOCTYPE html>
     <div class="dot"></div>
     <h1>RPi Sentinel — Dashboard</h1>
   </header>
-  <div class="grid">
 
-    <div class="card">
-      <h2 id="metric-label">Current Reading</h2>
-      <div>
-        <span class="temp-value" id="value">--</span>
-      </div>
-      <div><span class="status ok" id="status">--</span></div>
-      <div class="sensor-id" id="sensor-id"></div>
-    </div>
+  <div class="sensors-grid" id="sensors-grid"></div>
 
-    <div class="card chart-card">
-      <h2>History</h2>
-      <canvas id="chart" height="220"></canvas>
-    </div>
-
-    <div class="card">
-      <h2>Recent Alerts</h2>
-      <ul class="event-list" id="events">
-        <li><span class="empty">No alerts</span></li>
-      </ul>
-    </div>
-
+  <div class="card alerts-card">
+    <h2>Recent Alerts</h2>
+    <ul class="event-list" id="events">
+      <li><span class="empty">No alerts</span></li>
+    </ul>
   </div>
+
   <div class="updated" id="updated"></div>
 
 <script>
-const chart = new Chart(document.getElementById('chart').getContext('2d'), {
-  type: 'line',
-  data: {
-    labels: [],
-    datasets: [{
-      label: 'Value',
-      data: [],
-      borderColor: '#38bdf8',
-      backgroundColor: 'rgba(56,189,248,0.08)',
-      borderWidth: 2,
-      tension: 0.3,
-      fill: true,
-      pointRadius: 0,
-    }]
-  },
-  options: {
-    responsive: true,
-    animation: false,
-    interaction: { intersect: false, mode: 'index' },
-    scales: {
-      x: { ticks: { color:'#475569', maxTicksLimit:8, maxRotation:0 }, grid: { color:'#1e293b' } },
-      y: { ticks: { color:'#475569' }, grid: { color:'#334155' } }
+const charts = {};
+const palette = [
+  { border: '#38bdf8', bg: 'rgba(56,189,248,0.08)'  },
+  { border: '#a78bfa', bg: 'rgba(167,139,250,0.08)' },
+  { border: '#34d399', bg: 'rgba(52,211,153,0.08)'  },
+  { border: '#fb923c', bg: 'rgba(251,146,60,0.08)'  },
+  { border: '#f472b6', bg: 'rgba(244,114,182,0.08)' },
+];
+
+function domId(sensorId) {
+  return sensorId.replace(/[^a-zA-Z0-9_-]/g, '_');
+}
+
+function ensureCard(sensor) {
+  const sid = domId(sensor.id);
+  if (document.getElementById('card-' + sid)) return;
+
+  const col = palette[Object.keys(charts).length % palette.length];
+
+  const card = document.createElement('div');
+  card.id        = 'card-' + sid;
+  card.className = 'card';
+  card.innerHTML = `
+    <h2>${sensor.id}<span class="metric-tag">${sensor.metric}</span></h2>
+    <div><span class="sensor-value" id="val-${sid}">--</span></div>
+    <span class="status ok" id="status-${sid}">--</span>
+    <canvas id="chart-${sid}" height="140" style="margin-top:14px"></canvas>
+  `;
+  document.getElementById('sensors-grid').appendChild(card);
+
+  charts[sensor.id] = new Chart(
+    document.getElementById('chart-' + sid).getContext('2d'), {
+    type: 'line',
+    data: {
+      labels: [],
+      datasets: [{
+        data: [],
+        borderColor: col.border,
+        backgroundColor: col.bg,
+        borderWidth: 2,
+        tension: 0.3,
+        fill: true,
+        pointRadius: 0,
+      }]
     },
-    plugins: { legend:{ display:false }, tooltip:{ callbacks:{ label: ctx => ctx.parsed.y.toFixed(2) } } }
-  }
-});
+    options: {
+      responsive: true,
+      animation: false,
+      interaction: { intersect: false, mode: 'index' },
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: { label: ctx => ctx.parsed.y.toFixed(2) } }
+      },
+      scales: {
+        x: { ticks: { color:'#475569', maxTicksLimit:6, maxRotation:0 }, grid: { color:'#1e293b' } },
+        y: { ticks: { color:'#475569', callback: v => v.toFixed(1) },   grid: { color:'#334155' } }
+      }
+    }
+  });
+}
 
 function fmt(iso) {
   return new Date(iso).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', second:'2-digit'});
@@ -121,18 +144,22 @@ async function refresh() {
   try {
     const d = await fetch('/api/state').then(r => r.json());
 
-    if (d.has_reading) {
-      document.getElementById('value').textContent = d.current_value.toFixed(1);
-      document.getElementById('metric-label').textContent = d.current_metric || 'Current Reading';
-      document.getElementById('sensor-id').textContent = d.current_sensor_id;
-      const s = document.getElementById('status');
-      s.textContent = d.status === 'ok' ? 'OK' : 'Alert';
-      s.className = 'status ' + d.status;
-    }
+    for (const sensor of d.sensors) {
+      ensureCard(sensor);
+      const sid = domId(sensor.id);
 
-    chart.data.labels           = d.history.map(h => fmt(h.timestamp));
-    chart.data.datasets[0].data = d.history.map(h => h.value);
-    chart.update('none');
+      if (sensor.has_reading) {
+        document.getElementById('val-' + sid).textContent = sensor.current_value.toFixed(1);
+        const s = document.getElementById('status-' + sid);
+        s.textContent = sensor.status === 'ok' ? 'OK' : 'Alert';
+        s.className   = 'status ' + sensor.status;
+      }
+
+      const chart = charts[sensor.id];
+      chart.data.labels           = sensor.history.map(h => fmt(h.timestamp));
+      chart.data.datasets[0].data = sensor.history.map(h => h.value);
+      chart.update('none');
+    }
 
     const ul = document.getElementById('events');
     if (!d.recent_events.length) {
@@ -143,7 +170,8 @@ async function refresh() {
           <span class="badge ${e.type==='EXCEEDED'?'exceeded':'recovered'}">
             ${e.type==='EXCEEDED'?'▲ Exceeded':'▼ Recovered'}
           </span>
-          ${e.sensor_id} &nbsp;${e.metric}=${e.value.toFixed(1)} &nbsp;/&nbsp; threshold ${e.threshold.toFixed(1)}
+          <span class="event-sensor">${e.sensor_id}</span>
+          ${e.metric}=${e.value.toFixed(1)} &nbsp;/&nbsp; threshold&nbsp;${e.threshold.toFixed(1)}
           <span class="ts">${fmt(e.timestamp)}</span>
         </li>`).join('');
     }
@@ -206,39 +234,32 @@ void HttpServer::stop()
     if (thread_.joinable()) thread_.join();
 }
 
-std::string HttpServer::compute_status(const WebState::Snapshot& snap) const
-{
-    for (const auto& e : snap.recent_events) {
-        if (e.type == SensorEvent::Type::ThresholdExceeded)  return "alert";
-        if (e.type == SensorEvent::Type::ThresholdRecovered) return "ok";
-    }
-    return "ok";
-}
-
 std::string HttpServer::build_state_json(const WebState::Snapshot& snap) const
 {
     std::ostringstream out;
     out << std::boolalpha;
-    out << "{\n";
-    out << std::format("  \"has_reading\": {},\n",        snap.has_reading);
-    out << std::format("  \"current_value\": {:.2f},\n",  snap.current_value);
-    out << std::format("  \"current_sensor_id\": \"{}\",\n", snap.current_sensor_id);
-    out << std::format("  \"current_metric\": \"{}\",\n",    snap.current_metric);
-    out << std::format("  \"status\": \"{}\",\n",         compute_status(snap));
+    out << "{\n  \"sensors\": [";
 
-    // history
-    out << "  \"history\": [";
-    for (size_t i = 0; i < snap.history.size(); ++i) {
-        const auto& h = snap.history[i];
-        out << std::format(
-            "\n    {{\"sensor_id\": \"{}\", \"metric\": \"{}\", \"value\": {:.2f}, \"timestamp\": \"{}\"}}",
-            h.sensor_id, h.metric, h.value, format_iso8601(h.timestamp));
-        if (i + 1 < snap.history.size()) out << ',';
+    for (size_t i = 0; i < snap.sensors.size(); ++i) {
+        const auto& s = snap.sensors[i];
+        out << "\n    {\n";
+        out << std::format("      \"id\": \"{}\",\n",            s.id);
+        out << std::format("      \"metric\": \"{}\",\n",        s.metric);
+        out << std::format("      \"has_reading\": {},\n",       s.has_reading);
+        out << std::format("      \"current_value\": {:.2f},\n", s.current_value);
+        out << std::format("      \"status\": \"{}\",\n",        s.status);
+        out << "      \"history\": [";
+        for (size_t j = 0; j < s.history.size(); ++j) {
+            const auto& h = s.history[j];
+            out << std::format("\n        {{\"value\": {:.2f}, \"timestamp\": \"{}\"}}",
+                h.value, format_iso8601(h.timestamp));
+            if (j + 1 < s.history.size()) out << ',';
+        }
+        out << "\n      ]\n    }";
+        if (i + 1 < snap.sensors.size()) out << ',';
     }
-    out << "\n  ],\n";
 
-    // recent_events
-    out << "  \"recent_events\": [";
+    out << "\n  ],\n  \"recent_events\": [";
     for (size_t i = 0; i < snap.recent_events.size(); ++i) {
         const auto& e = snap.recent_events[i];
         std::string_view type = (e.type == SensorEvent::Type::ThresholdExceeded)
