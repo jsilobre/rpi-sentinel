@@ -1,4 +1,4 @@
-# Architecture — rpi-temp-monitor
+# Architecture — rpi-sentinel
 
 ## 1. Design principles
 
