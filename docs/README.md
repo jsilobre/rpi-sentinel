@@ -1,4 +1,4 @@
-# Documentation — rpi-temp-monitor
+# Documentation — rpi-sentinel
 
 Technical reference for current and future development.
 

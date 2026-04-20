@@ -1,4 +1,4 @@
-# Build guide — rpi-temp-monitor
+# Build guide — rpi-sentinel
 
 ## Prerequisites
 
@@ -24,7 +24,7 @@ cmake/
   CompilerOptions.cmake        ← apply_compiler_options(target) function
                                   flags: -Wall -Wextra -Wpedantic -Werror
 src/
-  CMakeLists.txt               ← subdirectories + rpi-temp-monitor executable
+  CMakeLists.txt               ← subdirectories + rpi-sentinel executable
   alerts/CMakeLists.txt        ← static lib: alerts
   events/CMakeLists.txt        ← static lib: events  (depends on alerts)
   sensors/CMakeLists.txt       ← static lib: sensors
@@ -36,7 +36,7 @@ tests/
 **CMake dependency graph:**
 
 ```
-rpi-temp-monitor
+rpi-sentinel
   └─ monitoring
        ├─ sensors
        └─ events
@@ -77,7 +77,7 @@ ctest --test-dir build --output-on-failure
 ### Run the application
 
 ```bash
-./build/rpi-temp-monitor
+./build/rpi-sentinel
 ```
 
 Expected output (simulated sensor):
@@ -142,7 +142,7 @@ Install tools directly on the RPi (Raspberry Pi OS 64-bit, Debian Bookworm based
 ```bash
 sudo apt-get install -y g++-14 cmake ninja-build git
 git clone <repo>
-cd rpi-temp-monitor
+cd rpi-sentinel
 cmake -B build -DCMAKE_CXX_COMPILER=g++-14 -DCMAKE_BUILD_TYPE=Release
 cmake --build build --parallel
 ```
@@ -160,7 +160,7 @@ cmake -B build-arm \
   -DCMAKE_BUILD_TYPE=Release
 
 cmake --build build-arm --parallel
-# Copy build-arm/rpi-temp-monitor to the RPi via scp
+# Copy build-arm/rpi-sentinel to the RPi via scp
 ```
 
 ### Enabling the 1-Wire bus on RPi 5
