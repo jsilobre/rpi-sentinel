@@ -28,6 +28,18 @@ jobs:
       - name: Setup Pages
         uses: actions/configure-pages@v5
 
+      - name: Inject MQTT credentials
+        env:
+          MQTT_BROKER_WSS: ${{ secrets.MQTT_BROKER_WSS }}
+          MQTT_USER: ${{ secrets.MQTT_USER }}
+          MQTT_PASS: ${{ secrets.MQTT_PASS }}
+        run: |
+          sed -i \
+            -e "s|__MQTT_BROKER_WSS__|${MQTT_BROKER_WSS}|g" \
+            -e "s|__MQTT_USER__|${MQTT_USER}|g" \
+            -e "s|__MQTT_PASS__|${MQTT_PASS}|g" \
+            dashboard/index.html
+
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
