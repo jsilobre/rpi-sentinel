@@ -86,6 +86,12 @@ void MqttPublisher::connect()
         }
     }
 
+    const std::string status_topic   = config_.topic_prefix + "/status";
+    const std::string offline_payload = R"({"status":"offline"})";
+    mosquitto_will_set(mosq_, status_topic.c_str(),
+        static_cast<int>(offline_payload.size()), offline_payload.c_str(),
+        /*qos=*/1, /*retain=*/true);
+
     int rc = mosquitto_connect(mosq_, addr.host.c_str(), addr.port, /*keepalive=*/60);
     if (rc != MOSQ_ERR_SUCCESS) {
         throw std::runtime_error(std::format(
@@ -93,12 +99,14 @@ void MqttPublisher::connect()
     }
 
     mosquitto_loop_start(mosq_);
+    publish(status_topic, R"({"status":"online"})", true);
     std::println("[MqttPublisher] Connected to {}:{}", addr.host, addr.port);
 }
 
 void MqttPublisher::disconnect()
 {
     if (mosq_) {
+        publish(config_.topic_prefix + "/status", R"({"status":"offline"})", true);
         mosquitto_loop_stop(mosq_, false);
         mosquitto_disconnect(mosq_);
         std::println("[MqttPublisher] Disconnected");
