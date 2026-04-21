@@ -2,6 +2,7 @@
 
 #include "../events/EventBus.hpp"
 #include "../sensors/ISensorReader.hpp"
+#include <atomic>
 #include <chrono>
 #include <thread>
 
@@ -22,15 +23,20 @@ public:
     void start();
     void stop();
 
+    void  update_thresholds(float warn, float crit);
+    float get_threshold_warn() const { return threshold_warn_.load(); }
+    float get_threshold_crit() const { return threshold_crit_.load(); }
+
 private:
     void run(std::stop_token stop);
 
-    ISensorReader& sensor_;
-    EventBus&      bus_;
-    MonitorConfig  config_;
-    std::jthread   thread_;
+    ISensorReader&      sensor_;
+    EventBus&           bus_;
+    MonitorConfig       config_;
+    std::atomic<float>  threshold_warn_;
+    std::atomic<float>  threshold_crit_;
+    std::jthread        thread_;
 
-    // Per-threshold state to manage hysteresis
     bool warn_active_ = false;
     bool crit_active_ = false;
 };

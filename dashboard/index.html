@@ -41,6 +41,17 @@
     .empty{color:#475569;font-size:.875rem}
     .updated{font-size:.7rem;color:#334155;margin-top:12px;text-align:right}
 
+    .config-row{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #0f172a;flex-wrap:wrap}
+    .config-row:last-child{border-bottom:none}
+    .config-label{color:#94a3b8;font-size:.8rem;font-weight:600;min-width:100px}
+    .config-field{display:flex;align-items:center;gap:6px;font-size:.75rem;color:#64748b}
+    .config-input{width:72px;background:#0f172a;border:1px solid #334155;border-radius:6px;color:#e2e8f0;font-size:.8rem;padding:4px 8px;text-align:right}
+    .config-input:focus{outline:none;border-color:#38bdf8}
+    .config-save-btn{background:#1d4ed8;color:#e2e8f0;border:none;border-radius:6px;padding:4px 12px;font-size:.75rem;font-weight:600;cursor:pointer;margin-left:auto}
+    .config-save-btn:hover{background:#2563eb}
+    .save-feedback{font-size:.7rem;min-width:60px}
+    .save-ok{color:#34d399}.save-err{color:#f87171}
+
     .placeholder{color:#475569;font-size:.875rem;padding:48px;text-align:center}
   </style>
 </head>
@@ -64,6 +75,11 @@
     </ul>
   </div>
 
+  <div class="card" style="margin-top:16px" id="config-card">
+    <h2>Configuration</h2>
+    <div id="config-rows"><span class="empty">Waiting for RPi…</span></div>
+  </div>
+
   <div class="updated" id="updated"></div>
 
 <script>
@@ -78,9 +94,10 @@ const TOPIC_PREFIX = 'rpi';
 const MAX_HISTORY = 120;
 const MAX_EVENTS  = 30;
 
-const charts  = {};
-const history = {};
-const events  = [];
+const charts           = {};
+const history          = {};
+const events           = [];
+const sensorThresholds = {};
 
 const palette = [
   { border: '#38bdf8', bg: 'rgba(56,189,248,0.08)'  },
@@ -234,6 +251,7 @@ client.on('connect', () => {
     `${TOPIC_PREFIX}/+/reading`,
     `${TOPIC_PREFIX}/+/alert`,
     `${TOPIC_PREFIX}/status`,
+    `${TOPIC_PREFIX}/config/current`,
   ], err => {
     if (err) console.error('Subscribe error:', err);
   });
@@ -262,6 +280,14 @@ client.on('message', (topic, message) => {
     return;
   }
 
+  if (topic === `${TOPIC_PREFIX}/config/current`) {
+    (data.sensors ?? []).forEach(s => {
+      sensorThresholds[s.id] = { warn: s.threshold_warn, crit: s.threshold_crit };
+    });
+    renderConfigPanel();
+    return;
+  }
+
   const parts = topic.split('/');
   if (parts.length < 3) return;
   const kind     = parts[parts.length - 1];
@@ -270,6 +296,43 @@ client.on('message', (topic, message) => {
   if (kind === 'reading') handleReading(sensorId, data);
   else if (kind === 'alert') handleAlert(sensorId, data);
 });
+
+function renderConfigPanel() {
+  const container = document.getElementById('config-rows');
+  container.innerHTML = '';
+  for (const [id, thr] of Object.entries(sensorThresholds)) {
+    const sid = id.replace(/[^a-zA-Z0-9_-]/g, '_');
+    const row = document.createElement('div');
+    row.className = 'config-row';
+    row.innerHTML = `
+      <span class="config-label">${id}</span>
+      <span class="config-field">Warn <input class="config-input" type="number" step="0.5" id="cfg-warn-${sid}" value="${thr.warn.toFixed(1)}"></span>
+      <span class="config-field">Crit <input class="config-input" type="number" step="0.5" id="cfg-crit-${sid}" value="${thr.crit.toFixed(1)}"></span>
+      <button class="config-save-btn" onclick="saveThreshold('${id}','${sid}')">Save</button>
+      <span class="save-feedback" id="cfg-fb-${sid}"></span>`;
+    container.appendChild(row);
+  }
+}
+
+function saveThreshold(sensorId, sid) {
+  const warn = parseFloat(document.getElementById('cfg-warn-' + sid).value);
+  const crit = parseFloat(document.getElementById('cfg-crit-' + sid).value);
+  const fb   = document.getElementById('cfg-fb-' + sid);
+  if (isNaN(warn) || isNaN(crit) || warn <= 0 || crit <= 0 || warn >= crit) {
+    fb.textContent = 'Invalid'; fb.className = 'save-feedback save-err'; return;
+  }
+  // Note: the MQTT subscriber user must have write permission on rpi/config/set in HiveMQ ACLs
+  client.publish(
+    `${TOPIC_PREFIX}/config/set`,
+    JSON.stringify({ sensor_id: sensorId, threshold_warn: warn, threshold_crit: crit }),
+    { qos: 1, retain: false },
+    err => {
+      if (err) { fb.textContent = 'Error'; fb.className = 'save-feedback save-err'; }
+      else     { fb.textContent = 'Sent';  fb.className = 'save-feedback save-ok'; }
+      setTimeout(() => { fb.textContent = ''; }, 3000);
+    }
+  );
+}
 </script>
 </body>
 </html>

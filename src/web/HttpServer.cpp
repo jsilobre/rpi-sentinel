@@ -1,6 +1,7 @@
 #include "HttpServer.hpp"
 
 #include <format>
+#include <nlohmann/json.hpp>
 #include <print>
 #include <sstream>
 
@@ -55,6 +56,18 @@ static constexpr std::string_view DASHBOARD_HTML = R"HTML(<!DOCTYPE html>
     .ts{color:#475569;font-size:.75rem;margin-left:auto;white-space:nowrap}
     .empty{color:#475569;font-size:.875rem}
     .updated{font-size:.7rem;color:#334155;margin-top:12px;text-align:right}
+
+    /* Config card */
+    .config-row{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #0f172a;flex-wrap:wrap}
+    .config-row:last-child{border-bottom:none}
+    .config-label{color:#94a3b8;font-size:.8rem;font-weight:600;min-width:100px}
+    .config-field{display:flex;align-items:center;gap:6px;font-size:.75rem;color:#64748b}
+    .config-input{width:72px;background:#0f172a;border:1px solid #334155;border-radius:6px;color:#e2e8f0;font-size:.8rem;padding:4px 8px;text-align:right}
+    .config-input:focus{outline:none;border-color:#38bdf8}
+    .config-save-btn{background:#1d4ed8;color:#e2e8f0;border:none;border-radius:6px;padding:4px 12px;font-size:.75rem;font-weight:600;cursor:pointer;margin-left:auto}
+    .config-save-btn:hover{background:#2563eb}
+    .save-feedback{font-size:.7rem;min-width:60px}
+    .save-ok{color:#34d399}.save-err{color:#f87171}
   </style>
 </head>
 <body>
@@ -70,6 +83,11 @@ static constexpr std::string_view DASHBOARD_HTML = R"HTML(<!DOCTYPE html>
     <ul class="event-list" id="events">
       <li><span class="empty">No alerts</span></li>
     </ul>
+  </div>
+
+  <div class="card" style="margin-top:16px">
+    <h2>Configuration</h2>
+    <div id="config-rows"><span class="empty">Loading…</span></div>
   </div>
 
   <div class="updated" id="updated"></div>
@@ -181,8 +199,52 @@ async function refresh() {
   } catch(e) { console.warn('fetch error', e); }
 }
 
+async function loadConfig() {
+  try {
+    const d = await fetch('/api/config').then(r => r.json());
+    const container = document.getElementById('config-rows');
+    container.innerHTML = '';
+    for (const s of d.sensors) {
+      const sid = s.id.replace(/[^a-zA-Z0-9_-]/g, '_');
+      const row = document.createElement('div');
+      row.className = 'config-row';
+      row.innerHTML = `
+        <span class="config-label">${s.id}</span>
+        <span class="config-field">Warn <input class="config-input" type="number" step="0.5" id="cfg-warn-${sid}" value="${s.threshold_warn.toFixed(1)}"></span>
+        <span class="config-field">Crit <input class="config-input" type="number" step="0.5" id="cfg-crit-${sid}" value="${s.threshold_crit.toFixed(1)}"></span>
+        <button class="config-save-btn" onclick="saveThreshold('${s.id}','${sid}')">Save</button>
+        <span class="save-feedback" id="cfg-fb-${sid}"></span>`;
+      container.appendChild(row);
+    }
+  } catch(e) { console.warn('config fetch error', e); }
+}
+
+async function saveThreshold(sensorId, sid) {
+  const warn = parseFloat(document.getElementById('cfg-warn-' + sid).value);
+  const crit = parseFloat(document.getElementById('cfg-crit-' + sid).value);
+  const fb   = document.getElementById('cfg-fb-' + sid);
+  if (isNaN(warn) || isNaN(crit) || warn <= 0 || crit <= 0 || warn >= crit) {
+    fb.textContent = 'Invalid'; fb.className = 'save-feedback save-err'; return;
+  }
+  try {
+    const res = await fetch('/api/config', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({sensors:[{id: sensorId, threshold_warn: warn, threshold_crit: crit}]})
+    });
+    const body = await res.json();
+    if (res.ok) {
+      fb.textContent = 'Saved'; fb.className = 'save-feedback save-ok';
+    } else {
+      fb.textContent = body.error ?? 'Error'; fb.className = 'save-feedback save-err';
+    }
+  } catch(e) { fb.textContent = 'Error'; fb.className = 'save-feedback save-err'; }
+  setTimeout(() => { fb.textContent = ''; }, 3000);
+}
+
 refresh();
 setInterval(refresh, 2000);
+loadConfig();
 </script>
 </body>
 </html>
@@ -202,9 +264,12 @@ static std::string format_iso8601(std::chrono::system_clock::time_point tp)
 
 // ─── HttpServer ────────────────────────────────────────────────────────────────
 
-HttpServer::HttpServer(uint16_t port, const WebState& state)
+HttpServer::HttpServer(uint16_t port, const WebState& state,
+                       ConfigGetter config_getter, ConfigUpdater config_updater)
     : state_(state)
     , port_(port)
+    , config_getter_(std::move(config_getter))
+    , config_updater_(std::move(config_updater))
     , server_(std::make_unique<httplib::Server>())
 {}
 
@@ -220,6 +285,58 @@ void HttpServer::start()
         auto snap = state_.snapshot();
         res.set_content(build_state_json(snap), "application/json");
         res.set_header("Access-Control-Allow-Origin", "*");
+    });
+
+    server_->Get("/api/config", [this](const httplib::Request&, httplib::Response& res) {
+        res.set_content(config_getter_(), "application/json");
+        res.set_header("Access-Control-Allow-Origin", "*");
+    });
+
+    server_->Options("/api/config", [](const httplib::Request&, httplib::Response& res) {
+        res.set_header("Access-Control-Allow-Origin", "*");
+        res.set_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+        res.set_header("Access-Control-Allow-Headers", "Content-Type");
+        res.status = 204;
+    });
+
+    server_->Post("/api/config", [this](const httplib::Request& req, httplib::Response& res) {
+        res.set_header("Access-Control-Allow-Origin", "*");
+        nlohmann::json body;
+        try {
+            body = nlohmann::json::parse(req.body);
+        } catch (...) {
+            res.status = 400;
+            res.set_content(R"({"error":"invalid JSON"})", "application/json");
+            return;
+        }
+        if (!body.contains("sensors") || !body["sensors"].is_array()) {
+            res.status = 400;
+            res.set_content(R"({"error":"missing sensors array"})", "application/json");
+            return;
+        }
+        for (const auto& s : body["sensors"]) {
+            if (!s.contains("id") || !s.contains("threshold_warn") || !s.contains("threshold_crit")) {
+                res.status = 400;
+                res.set_content(R"({"error":"each sensor needs id, threshold_warn, threshold_crit"})", "application/json");
+                return;
+            }
+            const auto id   = s["id"].get<std::string>();
+            const float warn = s["threshold_warn"].get<float>();
+            const float crit = s["threshold_crit"].get<float>();
+            if (warn <= 0.0f || crit <= 0.0f || warn >= crit) {
+                res.status = 400;
+                res.set_content(std::format(
+                    "{{\"error\":\"sensor '{}': warn and crit must be > 0 and warn < crit\"}}", id),
+                    "application/json");
+                return;
+            }
+            if (auto r = config_updater_(id, warn, crit); !r) {
+                res.status = 400;
+                res.set_content(std::format("{{\"error\":\"{}\"}}", r.error()), "application/json");
+                return;
+            }
+        }
+        res.set_content(R"({"status":"ok"})", "application/json");
     });
 
     thread_ = std::thread([this] {

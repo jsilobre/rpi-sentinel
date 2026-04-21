@@ -4,8 +4,11 @@
 
 #include <mosquitto.h>
 #include <format>
+#include <nlohmann/json.hpp>
 #include <print>
 #include <stdexcept>
+#include <thread>
+#include <chrono>
 
 namespace rpi {
 
@@ -54,12 +57,14 @@ MqttPublisher::MqttPublisher(const MqttConfig& config)
     : config_(config)
 {
     mosquitto_lib_init();
-    mosq_ = mosquitto_new(nullptr, /*clean_session=*/true, nullptr);
+    mosq_ = mosquitto_new(nullptr, /*clean_session=*/true, /*userdata=*/this);
     if (!mosq_) throw std::runtime_error("Failed to create mosquitto instance");
 
     if (!config_.username.empty()) {
         mosquitto_username_pw_set(mosq_, config_.username.c_str(), config_.password.c_str());
     }
+
+    mosquitto_message_callback_set(mosq_, &MqttPublisher::on_message_cb);
 }
 
 MqttPublisher::~MqttPublisher()
@@ -98,7 +103,11 @@ void MqttPublisher::connect()
             "MQTT connect to {}:{} failed: {}", addr.host, addr.port, mosquitto_strerror(rc)));
     }
 
+    config_topic_current_ = config_.topic_prefix + "/config/current";
+    config_topic_set_     = config_.topic_prefix + "/config/set";
+
     mosquitto_loop_start(mosq_);
+    mosquitto_subscribe(mosq_, nullptr, config_topic_set_.c_str(), /*qos=*/1);
     publish(status_topic, R"({"status":"online"})", true);
     std::println("[MqttPublisher] Connected to {}:{}", addr.host, addr.port);
 }
@@ -106,10 +115,68 @@ void MqttPublisher::connect()
 void MqttPublisher::disconnect()
 {
     if (mosq_) {
-        publish(config_.topic_prefix + "/status", R"({"status":"offline"})", true);
-        mosquitto_loop_stop(mosq_, false);
+        const std::string topic   = config_.topic_prefix + "/status";
+        const std::string payload = R"({"status":"offline"})";
+        // QoS 0 — no ACK wait; retain so broker keeps the last state
+        mosquitto_publish(mosq_, nullptr, topic.c_str(),
+            static_cast<int>(payload.size()), payload.c_str(), /*qos=*/0, /*retain=*/true);
+        std::this_thread::sleep_for(std::chrono::milliseconds{300});
+        mosquitto_loop_stop(mosq_, /*force=*/true);
         mosquitto_disconnect(mosq_);
         std::println("[MqttPublisher] Disconnected");
+    }
+}
+
+void MqttPublisher::set_threshold_callback(ThresholdCallback cb)
+{
+    threshold_cb_ = std::move(cb);
+}
+
+void MqttPublisher::publish_config(const std::string& config_json)
+{
+    if (!config_topic_current_.empty())
+        publish(config_topic_current_, config_json, /*retain=*/true);
+}
+
+void MqttPublisher::on_message_cb(struct mosquitto*, void* userdata,
+                                   const struct mosquitto_message* msg)
+{
+    if (userdata) static_cast<MqttPublisher*>(userdata)->handle_message(msg);
+}
+
+void MqttPublisher::handle_message(const struct mosquitto_message* msg)
+{
+    if (!msg || !msg->payload || msg->topic != config_topic_set_) return;
+
+    const std::string payload(static_cast<const char*>(msg->payload),
+                              static_cast<std::size_t>(msg->payloadlen));
+    nlohmann::json j;
+    try {
+        j = nlohmann::json::parse(payload);
+    } catch (...) {
+        std::println(stderr, "[MqttPublisher] config/set: invalid JSON");
+        return;
+    }
+
+    if (!j.contains("sensor_id") || !j.contains("threshold_warn") || !j.contains("threshold_crit")) {
+        std::println(stderr, "[MqttPublisher] config/set: missing fields");
+        return;
+    }
+
+    const auto  id   = j["sensor_id"].get<std::string>();
+    const float warn = j["threshold_warn"].get<float>();
+    const float crit = j["threshold_crit"].get<float>();
+
+    if (warn <= 0.0f || crit <= 0.0f || warn >= crit) {
+        std::println(stderr, "[MqttPublisher] config/set: invalid thresholds for '{}'", id);
+        return;
+    }
+
+    if (threshold_cb_) {
+        if (auto r = threshold_cb_(id, warn, crit); !r)
+            std::println(stderr, "[MqttPublisher] config/set update failed: {}", r.error());
+        else
+            std::println("[MqttPublisher] Thresholds updated: {} warn={} crit={}", id, warn, crit);
     }
 }
 

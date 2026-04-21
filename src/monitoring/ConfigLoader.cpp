@@ -91,4 +91,51 @@ auto load_config(const std::filesystem::path& path) -> std::expected<Config, std
     }
 }
 
+auto save_config(const std::filesystem::path& path, const Config& config) -> std::expected<void, std::string>
+{
+    auto sensor_type_str = [](SensorType t) -> std::string {
+        return t == SensorType::DS18B20 ? "ds18b20" : "simulated";
+    };
+
+    nlohmann::json j;
+    j["hysteresis"]       = config.hysteresis;
+    j["poll_interval_ms"] = static_cast<int>(config.poll_interval.count());
+    j["web_enabled"]      = config.web_enabled;
+    j["web_port"]         = config.web_port;
+    j["mqtt"] = {
+        {"enabled",      config.mqtt.enabled},
+        {"broker_url",   config.mqtt.broker_url},
+        {"username",     config.mqtt.username},
+        {"password",     config.mqtt.password},
+        {"topic_prefix", config.mqtt.topic_prefix},
+    };
+
+    nlohmann::json sensors = nlohmann::json::array();
+    for (const auto& sc : config.sensors) {
+        nlohmann::json s;
+        s["id"]             = sc.id;
+        s["type"]           = sensor_type_str(sc.type);
+        s["metric"]         = sc.metric;
+        s["threshold_warn"] = sc.threshold_warn;
+        s["threshold_crit"] = sc.threshold_crit;
+        if (!sc.device_path.empty())
+            s["device_path"] = sc.device_path;
+        sensors.push_back(std::move(s));
+    }
+    j["sensors"] = std::move(sensors);
+
+    const auto tmp_path = std::filesystem::path{path.string() + ".tmp"};
+    try {
+        std::ofstream out(tmp_path);
+        if (!out.is_open())
+            return std::unexpected(std::format("Cannot write to: {}", tmp_path.string()));
+        out << j.dump(4) << '\n';
+        out.close();
+        std::filesystem::rename(tmp_path, path);
+    } catch (const std::exception& e) {
+        return std::unexpected(std::format("save_config failed: {}", e.what()));
+    }
+    return {};
+}
+
 } // namespace rpi
