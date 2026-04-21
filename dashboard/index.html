@@ -13,6 +13,7 @@
     header h1{font-size:1.4rem;color:#94a3b8}
     .dot{width:10px;height:10px;border-radius:50%;background:#475569;transition:background .4s}
     .dot.connected{background:#22c55e;animation:pulse 2s infinite}
+    .dot.rpi_offline{background:#f59e0b}
     .dot.error{background:#f87171}
     @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
     .conn-label{font-size:.75rem;color:#475569}
@@ -102,7 +103,8 @@ function setConnStatus(state) {
   const label = document.getElementById('conn-label');
   dot.className = 'dot ' + state;
   label.textContent = {
-    connected:    'Connected',
+    connected:    'RPi online',
+    rpi_offline:  'RPi offline',
     disconnected: 'Disconnected',
     error:        'Connection error',
     Connecting:   'Connecting…',
@@ -228,10 +230,10 @@ const client = mqtt.connect(BROKER_WSS, {
 });
 
 client.on('connect', () => {
-  setConnStatus('connected');
   client.subscribe([
     `${TOPIC_PREFIX}/+/reading`,
     `${TOPIC_PREFIX}/+/alert`,
+    `${TOPIC_PREFIX}/status`,
   ], err => {
     if (err) console.error('Subscribe error:', err);
   });
@@ -242,17 +244,28 @@ client.on('offline',    () => setConnStatus('disconnected'));
 client.on('error',      () => setConnStatus('error'));
 client.on('reconnect',  () => setConnStatus('Connecting'));
 
+// If no retained rpi/status arrives within 3s, assume RPi is offline
+client.on('connect', () => {
+  setTimeout(() => {
+    const label = document.getElementById('conn-label').textContent;
+    if (label === 'Connecting…') setConnStatus('rpi_offline');
+  }, 3000);
+});
+
 client.on('message', (topic, message) => {
-  const parts = topic.split('/');
-  // Topics: {prefix}/{sensor_id}/reading  or  {prefix}/{sensor_id}/alert
-  if (parts.length < 3) return;
-
-  const kind     = parts[parts.length - 1];          // "reading" or "alert"
-  const sensorId = parts[parts.length - 2];
-
   let data;
   try { data = JSON.parse(message.toString()); }
   catch { console.warn('Malformed MQTT payload on', topic); return; }
+
+  if (topic === `${TOPIC_PREFIX}/status`) {
+    setConnStatus(data.status === 'online' ? 'connected' : 'rpi_offline');
+    return;
+  }
+
+  const parts = topic.split('/');
+  if (parts.length < 3) return;
+  const kind     = parts[parts.length - 1];
+  const sensorId = parts[parts.length - 2];
 
   if (kind === 'reading') handleReading(sensorId, data);
   else if (kind === 'alert') handleAlert(sensorId, data);
