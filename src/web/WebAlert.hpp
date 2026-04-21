@@ -8,7 +8,7 @@ namespace rpi {
 class WebAlert final : public IAlertHandler {
 public:
     explicit WebAlert(WebState& state);
-    void on_event(const ThermalEvent& event) override;
+    void on_event(const SensorEvent& event) override;
 
 private:
     WebState& state_;

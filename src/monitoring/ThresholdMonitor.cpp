@@ -4,7 +4,7 @@
 
 namespace rpi {
 
-ThresholdMonitor::ThresholdMonitor(ISensorReader& sensor, EventBus& bus, Config config)
+ThresholdMonitor::ThresholdMonitor(ISensorReader& sensor, EventBus& bus, MonitorConfig config)
     : sensor_(sensor)
     , bus_(bus)
     , config_(std::move(config))
@@ -36,51 +36,56 @@ void ThresholdMonitor::run(std::stop_token stop)
         if (!result) {
             std::println("[ThresholdMonitor] read error: {}", static_cast<int>(result.error()));
         } else {
-            float temp = result->temperature_celsius;
+            float temp = result->value;
 
-            // Lecture normale — utilisée par le dashboard web
-            bus_.dispatch(ThermalEvent{
-                .type        = ThermalEvent::Type::Reading,
-                .temperature = temp,
-                .threshold   = 0.0f,
-                .sensor_id   = result->sensor_id,
+            // Periodic reading — consumed by the web dashboard
+            bus_.dispatch(SensorEvent{
+                .type      = SensorEvent::Type::Reading,
+                .metric    = result->metric,
+                .value     = temp,
+                .threshold = 0.0f,
+                .sensor_id = result->sensor_id,
             });
 
             // Critical threshold (highest priority)
             if (!crit_active_ && temp >= config_.threshold_crit) {
                 crit_active_ = true;
-                bus_.dispatch(ThermalEvent{
-                    .type        = ThermalEvent::Type::ThresholdExceeded,
-                    .temperature = temp,
-                    .threshold   = config_.threshold_crit,
-                    .sensor_id   = result->sensor_id,
+                bus_.dispatch(SensorEvent{
+                    .type      = SensorEvent::Type::ThresholdExceeded,
+                    .metric    = result->metric,
+                    .value     = temp,
+                    .threshold = config_.threshold_crit,
+                    .sensor_id = result->sensor_id,
                 });
             } else if (crit_active_ && temp < config_.threshold_crit - config_.hysteresis) {
                 crit_active_ = false;
-                bus_.dispatch(ThermalEvent{
-                    .type        = ThermalEvent::Type::ThresholdRecovered,
-                    .temperature = temp,
-                    .threshold   = config_.threshold_crit,
-                    .sensor_id   = result->sensor_id,
+                bus_.dispatch(SensorEvent{
+                    .type      = SensorEvent::Type::ThresholdRecovered,
+                    .metric    = result->metric,
+                    .value     = temp,
+                    .threshold = config_.threshold_crit,
+                    .sensor_id = result->sensor_id,
                 });
             }
 
             // Warning threshold
             if (!warn_active_ && temp >= config_.threshold_warn && !crit_active_) {
                 warn_active_ = true;
-                bus_.dispatch(ThermalEvent{
-                    .type        = ThermalEvent::Type::ThresholdExceeded,
-                    .temperature = temp,
-                    .threshold   = config_.threshold_warn,
-                    .sensor_id   = result->sensor_id,
+                bus_.dispatch(SensorEvent{
+                    .type      = SensorEvent::Type::ThresholdExceeded,
+                    .metric    = result->metric,
+                    .value     = temp,
+                    .threshold = config_.threshold_warn,
+                    .sensor_id = result->sensor_id,
                 });
             } else if (warn_active_ && temp < config_.threshold_warn - config_.hysteresis) {
                 warn_active_ = false;
-                bus_.dispatch(ThermalEvent{
-                    .type        = ThermalEvent::Type::ThresholdRecovered,
-                    .temperature = temp,
-                    .threshold   = config_.threshold_warn,
-                    .sensor_id   = result->sensor_id,
+                bus_.dispatch(SensorEvent{
+                    .type      = SensorEvent::Type::ThresholdRecovered,
+                    .metric    = result->metric,
+                    .value     = temp,
+                    .threshold = config_.threshold_warn,
+                    .sensor_id = result->sensor_id,
                 });
             }
         }

@@ -1,34 +1,27 @@
 #include "monitoring/Config.hpp"
 #include "monitoring/ConfigLoader.hpp"
-#include "monitoring/ThresholdMonitor.hpp"
-#include "sensors/DS18B20Reader.hpp"
-#include "sensors/SimulatedSensor.hpp"
+#include "monitoring/MonitoringHub.hpp"
 #include "events/EventBus.hpp"
 #include "alerts/LogAlert.hpp"
 #include "web/WebAlert.hpp"
 #include "web/WebState.hpp"
 #include "web/HttpServer.hpp"
 
+#ifdef ENABLE_MQTT
+#include "alerts/MqttPublisher.hpp"
+#endif
+
 #include <csignal>
+#include <chrono>
 #include <memory>
 #include <print>
+#include <thread>
 
 namespace {
     volatile std::sig_atomic_t g_running = 1;
 }
 
 static void signal_handler(int) { g_running = 0; }
-
-static auto make_sensor(const rpi::Config& cfg) -> std::unique_ptr<rpi::ISensorReader>
-{
-    switch (cfg.sensor_type) {
-        case rpi::SensorType::DS18B20:
-            return std::make_unique<rpi::DS18B20Reader>(cfg.device_path);
-        case rpi::SensorType::Simulated:
-            return std::make_unique<rpi::SimulatedSensor>("sim-0");
-    }
-    return std::make_unique<rpi::SimulatedSensor>("sim-0");
-}
 
 int main(int argc, char* argv[])
 {
@@ -47,30 +40,44 @@ int main(int argc, char* argv[])
     const rpi::Config config = *result;
     std::println("[main] Config loaded from '{}'", config_path);
 
-    auto sensor = make_sensor(config);
-
     rpi::WebState web_state;
     rpi::EventBus bus;
     bus.register_handler(std::make_shared<rpi::LogAlert>());
     bus.register_handler(std::make_shared<rpi::WebAlert>(web_state));
 
-    rpi::ThresholdMonitor monitor(*sensor, bus, config);
-    monitor.start();
+#ifdef ENABLE_MQTT
+    std::shared_ptr<rpi::MqttPublisher> mqtt_pub;
+    if (config.mqtt.enabled) {
+        try {
+            mqtt_pub = std::make_shared<rpi::MqttPublisher>(config.mqtt);
+            mqtt_pub->connect();
+            bus.register_handler(mqtt_pub);
+        } catch (const std::exception& e) {
+            std::println(stderr, "[main] MQTT error: {}", e.what());
+        }
+    }
+#endif
+
+    rpi::MonitoringHub hub(bus, config);
+    hub.start();
 
     std::unique_ptr<rpi::HttpServer> http_server;
     if (config.web_enabled) {
-        http_server = std::make_unique<rpi::HttpServer>(config, web_state);
+        http_server = std::make_unique<rpi::HttpServer>(config.web_port, web_state);
         http_server->start();
     }
 
-    std::println("[main] Monitor started. Press Ctrl+C to stop.");
+    std::println("[main] Monitors started. Press Ctrl+C to stop.");
 
     while (g_running) {
         std::this_thread::sleep_for(std::chrono::milliseconds{200});
     }
 
     std::println("[main] Shutting down...");
-    monitor.stop();
+    hub.stop();
+#ifdef ENABLE_MQTT
+    if (mqtt_pub) mqtt_pub->disconnect();
+#endif
     if (http_server) http_server->stop();
     return 0;
 }

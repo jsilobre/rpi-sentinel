@@ -12,8 +12,9 @@ enum class SensorError {
 };
 
 struct SensorReading {
-    float       temperature_celsius;
     std::string sensor_id;
+    std::string metric;   // e.g. "temperature", "pressure"
+    float       value;
 };
 
 class ISensorReader {

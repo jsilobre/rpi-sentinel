@@ -5,34 +5,34 @@
 #include "../src/alerts/IAlertHandler.hpp"
 
 #include <chrono>
+#include <mutex>
 #include <thread>
 #include <vector>
 
 using namespace rpi;
 
-// Capture uniquement les événements d'alerte (ignore Reading)
+// Captures only alert events (ignores Reading)
 class CapturingHandler final : public IAlertHandler {
 public:
-    void on_event(const ThermalEvent& ev) override {
-        if (ev.type == ThermalEvent::Type::Reading) return;
+    void on_event(const SensorEvent& ev) override {
+        if (ev.type == SensorEvent::Type::Reading) return;
         std::lock_guard lock(mutex_);
         events.push_back(ev);
     }
-    std::vector<ThermalEvent> events;
+    std::vector<SensorEvent> events;
     std::mutex mutex_;
 };
 
 TEST(ThresholdMonitor, ExceedanceIsReported)
 {
-    // Sensor always returns 75°C — above warn (50) and crit (65)
-    SimulatedSensor sensor("test", []() { return 75.0f; });
+    // Sensor always returns 75 — above warn (50) and crit (65)
+    SimulatedSensor sensor("test", "temperature", []() { return 75.0f; });
 
     EventBus bus;
     auto handler = std::make_shared<CapturingHandler>();
     bus.register_handler(handler);
 
-    Config cfg{
-        .sensor_type    = SensorType::Simulated,
+    MonitorConfig cfg{
         .threshold_warn = 50.0f,
         .threshold_crit = 65.0f,
         .hysteresis     = 2.0f,
@@ -46,20 +46,19 @@ TEST(ThresholdMonitor, ExceedanceIsReported)
 
     std::lock_guard lock(handler->mutex_);
     ASSERT_FALSE(handler->events.empty());
-    EXPECT_EQ(handler->events[0].type, ThermalEvent::Type::ThresholdExceeded);
+    EXPECT_EQ(handler->events[0].type, SensorEvent::Type::ThresholdExceeded);
 }
 
 TEST(ThresholdMonitor, BelowThresholdNoEvent)
 {
-    // Sensor returns 20°C — below all thresholds
-    SimulatedSensor sensor("test", []() { return 20.0f; });
+    // Sensor returns 20 — below all thresholds
+    SimulatedSensor sensor("test", "temperature", []() { return 20.0f; });
 
     EventBus bus;
     auto handler = std::make_shared<CapturingHandler>();
     bus.register_handler(handler);
 
-    Config cfg{
-        .sensor_type    = SensorType::Simulated,
+    MonitorConfig cfg{
         .threshold_warn = 50.0f,
         .threshold_crit = 65.0f,
         .hysteresis     = 2.0f,

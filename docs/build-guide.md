@@ -1,42 +1,42 @@
-# Guide de build — rpi-temp-monitor
+# Build guide — rpi-sentinel
 
-## Prérequis
+## Prerequisites
 
-| Outil | Version minimale | Remarque |
+| Tool | Minimum version | Notes |
 |---|---|---|
 | CMake | 3.28 | `cmake --version` |
-| GCC | 14 | `g++-14 --version` — requis pour `<print>` (C++23) |
-| Git | toute | |
-| ninja-build | toute | optionnel mais recommandé |
+| GCC | 14 | `g++-14 --version` — required for `<print>` (C++23) |
+| Git | any | |
+| ninja-build | any | optional but recommended |
 
-**Ubuntu 24.04 :**
+**Ubuntu 24.04:**
 ```bash
 sudo apt-get install -y g++-14 cmake ninja-build
 ```
 
 ---
 
-## Structure du build system
+## Build system structure
 
 ```
-CMakeLists.txt                 ← racine : projet, standard C++23, options
+CMakeLists.txt                 ← root: project, C++23 standard, options
 cmake/
-  CompilerOptions.cmake        ← fonction apply_compiler_options(target)
-                                  flags : -Wall -Wextra -Wpedantic -Werror
+  CompilerOptions.cmake        ← apply_compiler_options(target) function
+                                  flags: -Wall -Wextra -Wpedantic -Werror
 src/
-  CMakeLists.txt               ← sous-répertoires + exécutable rpi-temp-monitor
-  alerts/CMakeLists.txt        ← lib statique : alerts
-  events/CMakeLists.txt        ← lib statique : events  (dépend de alerts)
-  sensors/CMakeLists.txt       ← lib statique : sensors
-  monitoring/CMakeLists.txt    ← lib statique : monitoring (dépend de sensors, events)
+  CMakeLists.txt               ← subdirectories + rpi-sentinel executable
+  alerts/CMakeLists.txt        ← static lib: alerts
+  events/CMakeLists.txt        ← static lib: events  (depends on alerts)
+  sensors/CMakeLists.txt       ← static lib: sensors
+  monitoring/CMakeLists.txt    ← static lib: monitoring (depends on sensors, events)
 tests/
-  CMakeLists.txt               ← FetchContent GTest + exécutable rpi_tests
+  CMakeLists.txt               ← FetchContent GTest + rpi_tests executable
 ```
 
-**Graphe de dépendances CMake :**
+**CMake dependency graph:**
 
 ```
-rpi-temp-monitor
+rpi-sentinel
   └─ monitoring
        ├─ sensors
        └─ events
@@ -45,66 +45,68 @@ rpi-temp-monitor
 
 ---
 
-## Commandes de build
+## Build commands
 
-### Configuration
+### Configure
 
 ```bash
-# Avec tests (défaut)
+# With tests (default)
 cmake -B build -DCMAKE_CXX_COMPILER=g++-14 -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
 
-# Sans tests
+# Without tests
 cmake -B build -DCMAKE_CXX_COMPILER=g++-14 -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF
 
-# Avec Ninja (plus rapide)
+# With Ninja (faster)
 cmake -B build -G Ninja -DCMAKE_CXX_COMPILER=g++-14 -DCMAKE_BUILD_TYPE=Release
 ```
 
-### Compilation
+### Compile
 
 ```bash
 cmake --build build --parallel
-# ou avec Ninja :
+# or with Ninja:
 ninja -C build
 ```
 
-### Lancer les tests
+### Run tests
 
 ```bash
 ctest --test-dir build --output-on-failure
 ```
 
-### Lancer l'application
+### Run the application
 
 ```bash
-./build/rpi-temp-monitor
+./build/rpi-sentinel
 ```
 
-Sortie attendue (capteur simulé) :
+Expected output (simulated sensor):
 ```
-[main] Monitor started. Press Ctrl+C to stop.
-[2025-04-18 14:32:01] [EXCEEDED]  sensor=sim-0 temp=68.3°C threshold=65.0°C
-[2025-04-18 14:32:03] [RECOVERED] sensor=sim-0 temp=62.8°C threshold=65.0°C
+[main] Config loaded from 'config.json'
+[MonitoringHub] 1 monitor(s) configured.
+[main] Monitors started. Press Ctrl+C to stop.
+[2025-04-18 14:32:01] [EXCEEDED]  sensor=sim-temp temperature=68.3 threshold=65.0
+[2025-04-18 14:32:03] [RECOVERED] sensor=sim-temp temperature=62.8 threshold=65.0
 ```
 
 ---
 
-## Options CMake
+## CMake options
 
-| Option | Défaut | Description |
+| Option | Default | Description |
 |---|---|---|
-| `BUILD_TESTING` | `ON` | Active la compilation et l'enregistrement des tests Google Test |
+| `BUILD_TESTING` | `ON` | Enables building and registering Google Test unit tests |
 | `CMAKE_BUILD_TYPE` | — | `Release` / `Debug` / `RelWithDebInfo` |
-| `CMAKE_EXPORT_COMPILE_COMMANDS` | `ON` | Génère `build/compile_commands.json` pour clangd / VSCode |
+| `CMAKE_EXPORT_COMPILE_COMMANDS` | `ON` | Generates `build/compile_commands.json` for clangd / VSCode |
 
 ---
 
-## Support LSP (clangd / VSCode)
+## LSP support (clangd / VSCode)
 
-Le fichier `build/compile_commands.json` est généré automatiquement.
+`build/compile_commands.json` is generated automatically.
 
 ```bash
-# Lien symbolique pour que clangd le trouve à la racine
+# Symlink so clangd finds it at the project root
 ln -s build/compile_commands.json compile_commands.json
 ```
 
@@ -112,35 +114,35 @@ ln -s build/compile_commands.json compile_commands.json
 
 ## CI/CD — GitHub Actions
 
-Le workflow `.github/workflows/ci.yml` se déclenche sur chaque push et pull request.
+The `.github/workflows/ci.yml` workflow triggers on every push and pull request.
 
-### Étapes
+### Steps
 
 ```
-1. Checkout du code
-2. Installation de GCC 14 + CMake + Ninja
+1. Code checkout
+2. Install GCC 14 + CMake + Ninja
 3. cmake configure  (-DBUILD_TESTING=ON)
 4. cmake build      (--parallel)
 5. ctest            (--output-on-failure)
 ```
 
-### Exigences pour merger
+### Merge requirements
 
-- Le build doit passer sans erreur de compilation (flags `-Werror` actifs).
-- Les 4 tests unitaires doivent passer.
+- Build must pass without compilation errors (`-Werror` flags active).
+- All unit tests must pass.
 
 ---
 
-## Portage sur Raspberry Pi 5
+## Deploying to Raspberry Pi 5
 
-### Option A — Build natif sur le RPi
+### Option A — Native build on the RPi
 
-Installer les outils directement sur le RPi (Raspberry Pi OS 64-bit, basé Debian Bookworm) :
+Install tools directly on the RPi (Raspberry Pi OS 64-bit, Debian Bookworm based):
 
 ```bash
 sudo apt-get install -y g++-14 cmake ninja-build git
 git clone <repo>
-cd rpi-temp-monitor
+cd rpi-sentinel
 cmake -B build -DCMAKE_CXX_COMPILER=g++-14 -DCMAKE_BUILD_TYPE=Release
 cmake --build build --parallel
 ```
@@ -158,50 +160,54 @@ cmake -B build-arm \
   -DCMAKE_BUILD_TYPE=Release
 
 cmake --build build-arm --parallel
-# Copier build-arm/rpi-temp-monitor sur le RPi via scp
+# Copy build-arm/rpi-sentinel to the RPi via scp
 ```
 
-### Activation du bus 1-Wire sur RPi 5
+### Enabling the 1-Wire bus on RPi 5
 
-Ajouter dans `/boot/firmware/config.txt` :
+Add to `/boot/firmware/config.txt`:
 
 ```
 dtoverlay=w1-gpio,gpiopin=4
 ```
 
-Redémarrer, puis vérifier :
+Reboot, then verify:
 
 ```bash
 ls /sys/bus/w1/devices/
-# 28-xxxxxxxxxx   ← identifiant du DS18B20
+# 28-xxxxxxxxxx   ← DS18B20 device id
 
 cat /sys/bus/w1/devices/28-xxxxxxxxxx/temperature
-# 23562  ← millidegrés Celsius (= 23.562 °C)
+# 23562  ← millidegrees Celsius (= 23.562 °C)
 ```
 
-Configurer le `device_path` dans `main.cpp` :
+Set `device_path` in `config.json`:
 
-```cpp
-Config config{
-    .sensor_type = rpi::SensorType::DS18B20,
-    .device_path = "/sys/bus/w1/devices/28-xxxxxxxxxx/temperature",
-    ...
-};
+```json
+{
+  "sensors": [{
+    "id": "cpu-temp",
+    "type": "ds18b20",
+    "device_path": "/sys/bus/w1/devices/28-xxxxxxxxxx/temperature",
+    "metric": "temperature",
+    "threshold_warn": 60.0,
+    "threshold_crit": 80.0
+  }]
+}
 ```
 
 ---
 
-## Ajouter un test
+## Adding a test
 
-Les tests se trouvent dans `tests/`. Ils utilisent Google Test (téléchargé via `FetchContent`
-au moment du `cmake configure`).
+Tests live in `tests/`. They use Google Test (downloaded via `FetchContent` at `cmake configure` time).
 
 ```cpp
-// tests/test_mon_composant.cpp
+// tests/test_my_component.cpp
 #include <gtest/gtest.h>
-#include "../src/mon_composant/MonComposant.hpp"
+#include "../src/my_component/MyComponent.hpp"
 
-TEST(MonComposant, DescriptionDuCas)
+TEST(MyComponent, DescribeTheCase)
 {
     // Arrange
     // Act
@@ -210,12 +216,12 @@ TEST(MonComposant, DescriptionDuCas)
 }
 ```
 
-Enregistrer dans `tests/CMakeLists.txt` :
+Register in `tests/CMakeLists.txt`:
 
 ```cmake
 add_executable(rpi_tests
     test_event_bus.cpp
     test_threshold_monitor.cpp
-    test_mon_composant.cpp   # ← ajouter ici
+    test_my_component.cpp   # ← add here
 )
 ```

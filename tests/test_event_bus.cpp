@@ -6,7 +6,7 @@ using namespace rpi;
 
 class CountingHandler final : public IAlertHandler {
 public:
-    void on_event(const ThermalEvent&) override { ++count; }
+    void on_event(const SensorEvent&) override { ++count; }
     int count = 0;
 };
 
@@ -18,11 +18,12 @@ TEST(EventBus, DispatchCallsAllHandlers)
     bus.register_handler(h1);
     bus.register_handler(h2);
 
-    ThermalEvent ev{
-        .type        = ThermalEvent::Type::ThresholdExceeded,
-        .temperature = 70.0f,
-        .threshold   = 60.0f,
-        .sensor_id   = "test",
+    SensorEvent ev{
+        .type      = SensorEvent::Type::ThresholdExceeded,
+        .metric    = "temperature",
+        .value     = 70.0f,
+        .threshold = 60.0f,
+        .sensor_id = "test",
     };
     bus.dispatch(ev);
 
@@ -33,11 +34,12 @@ TEST(EventBus, DispatchCallsAllHandlers)
 TEST(EventBus, NoHandlersNocrash)
 {
     EventBus bus;
-    ThermalEvent ev{
-        .type        = ThermalEvent::Type::ThresholdRecovered,
-        .temperature = 30.0f,
-        .threshold   = 60.0f,
-        .sensor_id   = "test",
+    SensorEvent ev{
+        .type      = SensorEvent::Type::ThresholdRecovered,
+        .metric    = "temperature",
+        .value     = 30.0f,
+        .threshold = 60.0f,
+        .sensor_id = "test",
     };
     EXPECT_NO_THROW(bus.dispatch(ev));
 }

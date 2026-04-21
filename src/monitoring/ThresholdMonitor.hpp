@@ -1,15 +1,22 @@
 #pragma once
 
-#include "Config.hpp"
 #include "../events/EventBus.hpp"
 #include "../sensors/ISensorReader.hpp"
+#include <chrono>
 #include <thread>
 
 namespace rpi {
 
+struct MonitorConfig {
+    float                     threshold_warn;
+    float                     threshold_crit;
+    float                     hysteresis;
+    std::chrono::milliseconds poll_interval;
+};
+
 class ThresholdMonitor {
 public:
-    ThresholdMonitor(ISensorReader& sensor, EventBus& bus, Config config);
+    ThresholdMonitor(ISensorReader& sensor, EventBus& bus, MonitorConfig config);
     ~ThresholdMonitor();
 
     void start();
@@ -20,7 +27,7 @@ private:
 
     ISensorReader& sensor_;
     EventBus&      bus_;
-    Config         config_;
+    MonitorConfig  config_;
     std::jthread   thread_;
 
     // Per-threshold state to manage hysteresis

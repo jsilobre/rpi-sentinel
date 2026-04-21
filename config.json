@@ -1,24 +1,41 @@
 {
-    // Type de capteur : "simulated" ou "ds18b20"
-    "sensor_type": "simulated",
-
-    // Chemin noyau du DS18B20 (utilisé seulement si sensor_type = "ds18b20")
-    "device_path": "/sys/bus/w1/devices/28-000000000000/temperature",
-
-    // Seuil d'avertissement (°C) — doit être < threshold_crit
-    "threshold_warn": 50.0,
-
-    // Seuil critique (°C)
-    "threshold_crit": 65.0,
-
-    // Zone tampon anti-oscillation (°C) : un événement RECOVERED n'est envoyé
-    // que lorsque la température redescend sous (seuil - hysteresis)
+    // Global monitoring settings
     "hysteresis": 2.0,
 
-    // Intervalle de lecture du capteur (millisecondes)
+    // Sensor polling interval (milliseconds)
     "poll_interval_ms": 2000,
 
-    // Dashboard web
+    // Web dashboard
     "web_enabled": true,
-    "web_port": 8080
+    "web_port": 8080,
+
+    // MQTT cloud publishing (HiveMQ Cloud or any MQTT broker)
+    // Fill in your credentials and set "enabled": true to activate
+    "mqtt": {
+        "enabled": false,
+        "broker_url": "ssl://YOUR_CLUSTER.hivemq.cloud:8883",
+        "username": "YOUR_PUBLISHER_USER",
+        "password": "YOUR_PUBLISHER_PASSWORD",
+        "topic_prefix": "rpi"
+    },
+
+    // List of sensors to monitor
+    "sensors": [
+        {
+            // Sensor identifier (used in logs and dashboard)
+            "id": "sim-temp",
+
+            // Sensor type: "simulated" or "ds18b20"
+            "type": "simulated",
+
+            // Physical quantity being measured
+            "metric": "temperature",
+
+            // Warning threshold (must be < threshold_crit)
+            "threshold_warn": 50.0,
+
+            // Critical threshold
+            "threshold_crit": 65.0
+        }
+    ]
 }
