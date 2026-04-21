@@ -6,6 +6,8 @@
 #include <format>
 #include <print>
 #include <stdexcept>
+#include <thread>
+#include <chrono>
 
 namespace rpi {
 
@@ -106,8 +108,13 @@ void MqttPublisher::connect()
 void MqttPublisher::disconnect()
 {
     if (mosq_) {
-        publish(config_.topic_prefix + "/status", R"({"status":"offline"})", true);
-        mosquitto_loop_stop(mosq_, false);
+        const std::string topic   = config_.topic_prefix + "/status";
+        const std::string payload = R"({"status":"offline"})";
+        // QoS 0 — no ACK wait; retain so broker keeps the last state
+        mosquitto_publish(mosq_, nullptr, topic.c_str(),
+            static_cast<int>(payload.size()), payload.c_str(), /*qos=*/0, /*retain=*/true);
+        std::this_thread::sleep_for(std::chrono::milliseconds{300});
+        mosquitto_loop_stop(mosq_, /*force=*/true);
         mosquitto_disconnect(mosq_);
         std::println("[MqttPublisher] Disconnected");
     }
