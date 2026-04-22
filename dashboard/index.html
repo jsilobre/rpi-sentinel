@@ -8,79 +8,167 @@
   <script src="https://cdn.jsdelivr.net/npm/mqtt@5.10.1/dist/mqtt.min.js"></script>
   <style>
     *{box-sizing:border-box;margin:0;padding:0}
-    body{font-family:system-ui,sans-serif;background:#0f172a;color:#e2e8f0;min-height:100vh;padding:24px}
-    header{display:flex;align-items:center;gap:10px;margin-bottom:24px}
-    header h1{font-size:1.4rem;color:#94a3b8}
-    .dot{width:10px;height:10px;border-radius:50%;background:#475569;transition:background .4s}
-    .dot.connected{background:#22c55e;animation:pulse 2s infinite}
-    .dot.rpi_offline{background:#f59e0b}
-    .dot.error{background:#f87171}
-    @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
-    .conn-label{font-size:.75rem;color:#475569}
+    :root{
+      --bg:#f1f5f9;--surface:#ffffff;--surface-2:#f8fafc;--border:#e2e8f0;
+      --text:#0f172a;--muted:#64748b;--muted-2:#94a3b8;
+      --accent:#0284c7;--accent-soft:#e0f2fe;
+      --ok-bg:#ecfdf5;--ok-fg:#047857;--ok-line:#10b981;
+      --warn-bg:#fffbeb;--warn-fg:#b45309;--warn-line:#f59e0b;
+      --err-bg:#fef2f2;--err-fg:#b91c1c;--err-line:#ef4444;
+      --shadow:0 1px 2px rgba(15,23,42,.04),0 1px 3px rgba(15,23,42,.06);
+      --grid:#eef2f6;--grid-axis:#cbd5e1;
+    }
+    [data-theme="dark"]{
+      --bg:#0b1220;--surface:#111a2e;--surface-2:#0f172a;--border:#1e293b;
+      --text:#e2e8f0;--muted:#94a3b8;--muted-2:#64748b;
+      --accent:#38bdf8;--accent-soft:#0c2740;
+      --ok-bg:#052e23;--ok-fg:#34d399;--ok-line:#10b981;
+      --warn-bg:#3a2708;--warn-fg:#fbbf24;--warn-line:#f59e0b;
+      --err-bg:#3a1013;--err-fg:#fca5a5;--err-line:#ef4444;
+      --shadow:none;
+      --grid:#16243c;--grid-axis:#334155;
+    }
+    html,body{height:100%}
+    body{font-family:system-ui,-apple-system,"Segoe UI",sans-serif;background:var(--bg);color:var(--text);font-size:13px;line-height:1.4}
 
-    .sensors-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:16px;margin-bottom:16px}
+    header.topbar{position:sticky;top:0;z-index:10;display:flex;align-items:center;gap:12px;
+      padding:10px 20px;background:var(--surface);border-bottom:1px solid var(--border);}
+    .brand{display:flex;align-items:center;gap:8px;font-weight:600;color:var(--text);font-size:14px}
+    .brand .logo{width:22px;height:22px;border-radius:6px;background:linear-gradient(135deg,var(--accent),#6366f1);
+      display:inline-flex;align-items:center;justify-content:center;color:#fff;font-size:11px;font-weight:700}
+    .conn{display:flex;align-items:center;gap:8px;padding:3px 10px;border-radius:9999px;
+      background:var(--surface-2);border:1px solid var(--border);font-size:11.5px;color:var(--muted)}
+    .dot{width:8px;height:8px;border-radius:50%;background:#94a3b8;transition:background .3s}
+    .dot.connected{background:var(--ok-line);animation:pulse 2s infinite}
+    .dot.rpi_offline{background:var(--warn-line)}
+    .dot.error{background:var(--err-line)}
+    @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+    .spacer{flex:1}
+    .icon-btn{background:var(--surface-2);border:1px solid var(--border);color:var(--muted);
+      padding:5px 10px;border-radius:6px;font-size:12px;cursor:pointer;display:inline-flex;align-items:center;gap:6px}
+    .icon-btn:hover{color:var(--text);border-color:var(--muted-2)}
+    .updated{font-size:11px;color:var(--muted-2);margin-right:4px}
 
-    .card{background:#1e293b;border-radius:12px;padding:20px}
-    .card h2{font-size:.75rem;color:#64748b;text-transform:uppercase;letter-spacing:.07em;margin-bottom:12px;display:flex;align-items:center;gap:8px}
-    .metric-tag{background:#0f172a;color:#475569;border-radius:4px;padding:2px 6px;font-size:.65rem;font-weight:600;text-transform:lowercase;letter-spacing:0}
+    main{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:16px;padding:16px 20px;align-items:start}
+    @media (max-width: 900px){ main{grid-template-columns:1fr} }
 
-    .sensor-value{font-size:3.5rem;font-weight:700;line-height:1;letter-spacing:-2px}
-    .status{display:inline-block;padding:3px 12px;border-radius:9999px;font-size:.7rem;font-weight:700;margin-top:8px;text-transform:uppercase}
-    .ok   {background:#064e3b;color:#34d399}
-    .alert{background:#7f1d1d;color:#f87171}
+    .section-title{font-size:10.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;
+      font-weight:600;display:flex;align-items:center;gap:8px;margin:0 4px 8px}
+    .count-pill{background:var(--surface);border:1px solid var(--border);color:var(--muted);
+      border-radius:9999px;padding:1px 7px;font-size:10px;letter-spacing:0;text-transform:none}
 
-    .alerts-card{margin-top:0}
-    .event-list{list-style:none}
-    .event-list li{padding:9px 0;border-bottom:1px solid #0f172a;font-size:.825rem;display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
+    .sensors-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(360px,1fr));gap:12px}
+    .card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px 14px;box-shadow:var(--shadow)}
+
+    .sensor-head{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+    .sensor-name{font-size:12.5px;font-weight:600;color:var(--text)}
+    .metric-tag{background:var(--surface-2);color:var(--muted);border:1px solid var(--border);
+      border-radius:4px;padding:1px 6px;font-size:10px;font-weight:500;font-family:ui-monospace,monospace}
+    .status{margin-left:auto;padding:2px 8px;border-radius:9999px;font-size:10px;font-weight:700;letter-spacing:.04em;text-transform:uppercase}
+    .ok{background:var(--ok-bg);color:var(--ok-fg)}
+    .alert{background:var(--err-bg);color:var(--err-fg)}
+
+    .sensor-row{display:flex;align-items:baseline;gap:10px;margin-bottom:2px}
+    .sensor-value{font-size:1.9rem;font-weight:700;letter-spacing:-1px;line-height:1;font-variant-numeric:tabular-nums}
+    .trend{font-size:12px;color:var(--muted);font-weight:500}
+    .trend.up{color:var(--err-fg)}
+    .trend.down{color:var(--ok-fg)}
+
+    .stats{display:flex;gap:14px;margin:4px 0 8px;font-size:10.5px;color:var(--muted);font-variant-numeric:tabular-nums}
+    .stats b{color:var(--text);font-weight:600}
+
+    .chart-wrap{height:90px}
+    canvas{display:block;width:100%!important;height:100%!important}
+
+    /* Right rail — alerts */
+    .rail .card{padding:0;overflow:hidden}
+    .rail-head{padding:10px 14px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px}
+    .rail-head h2{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;font-weight:600}
+    .event-list{list-style:none;max-height:calc(100vh - 160px);overflow-y:auto}
+    .event-list li{padding:9px 14px;border-bottom:1px solid var(--border);display:grid;
+      grid-template-columns:auto 1fr auto;gap:6px 10px;align-items:center;font-size:12px}
     .event-list li:last-child{border-bottom:none}
-    .badge{padding:2px 8px;border-radius:4px;font-size:.7rem;font-weight:700;white-space:nowrap}
-    .exceeded {background:#7f1d1d;color:#f87171}
-    .recovered{background:#064e3b;color:#34d399}
-    .event-sensor{color:#94a3b8;font-weight:600;font-size:.75rem}
-    .ts{color:#475569;font-size:.75rem;margin-left:auto;white-space:nowrap}
-    .empty{color:#475569;font-size:.875rem}
-    .updated{font-size:.7rem;color:#334155;margin-top:12px;text-align:right}
+    .event-list li .det{grid-column:2 / 4;font-size:11px;color:var(--muted);font-family:ui-monospace,monospace}
+    .badge{padding:1px 7px;border-radius:4px;font-size:10px;font-weight:700;white-space:nowrap}
+    .exceeded{background:var(--err-bg);color:var(--err-fg)}
+    .recovered{background:var(--ok-bg);color:var(--ok-fg)}
+    .event-sensor{color:var(--text);font-weight:600;font-size:11.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .ts{color:var(--muted-2);font-size:10.5px;font-variant-numeric:tabular-nums;white-space:nowrap}
+    .empty{color:var(--muted-2);font-size:12px;padding:24px 14px;display:block;text-align:center}
+    .placeholder{color:var(--muted-2);font-size:12px;padding:36px 14px;text-align:center}
 
-    .config-row{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #0f172a;flex-wrap:wrap}
+    /* Modal */
+    .modal-backdrop{position:fixed;inset:0;background:rgba(15,23,42,.45);display:none;align-items:center;justify-content:center;z-index:50;padding:20px}
+    .modal-backdrop.open{display:flex}
+    .modal{background:var(--surface);border:1px solid var(--border);border-radius:12px;width:100%;max-width:560px;
+      box-shadow:0 12px 40px rgba(15,23,42,.18);max-height:90vh;display:flex;flex-direction:column}
+    .modal-head{padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px}
+    .modal-head h3{font-size:14px;font-weight:600}
+    .modal-body{padding:6px 18px 14px;overflow-y:auto}
+    .modal-close{margin-left:auto;background:none;border:none;color:var(--muted);font-size:18px;cursor:pointer;line-height:1}
+    .modal-close:hover{color:var(--text)}
+
+    .config-row{display:grid;grid-template-columns:1fr auto auto auto auto;gap:8px;align-items:center;
+      padding:10px 0;border-bottom:1px solid var(--border)}
     .config-row:last-child{border-bottom:none}
-    .config-label{color:#94a3b8;font-size:.8rem;font-weight:600;min-width:100px}
-    .config-field{display:flex;align-items:center;gap:6px;font-size:.75rem;color:#64748b}
-    .config-input{width:72px;background:#0f172a;border:1px solid #334155;border-radius:6px;color:#e2e8f0;font-size:.8rem;padding:4px 8px;text-align:right}
-    .config-input:focus{outline:none;border-color:#38bdf8}
-    .config-save-btn{background:#1d4ed8;color:#e2e8f0;border:none;border-radius:6px;padding:4px 12px;font-size:.75rem;font-weight:600;cursor:pointer;margin-left:auto}
-    .config-save-btn:hover{background:#2563eb}
-    .save-feedback{font-size:.7rem;min-width:60px}
-    .save-ok{color:#34d399}.save-err{color:#f87171}
+    .config-label{font-weight:600;font-size:12.5px}
+    .config-field{display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted)}
+    .config-input{width:68px;background:var(--surface-2);border:1px solid var(--border);border-radius:6px;
+      color:var(--text);font-size:12px;padding:4px 7px;text-align:right;font-variant-numeric:tabular-nums}
+    .config-input:focus{outline:none;border-color:var(--accent)}
+    .config-save-btn{background:var(--accent);color:#fff;border:none;border-radius:6px;
+      padding:5px 12px;font-size:11.5px;font-weight:600;cursor:pointer}
+    .config-save-btn:hover{filter:brightness(1.08)}
+    .save-feedback{font-size:10.5px;min-width:42px;text-align:right}
+    .save-ok{color:var(--ok-fg)}.save-err{color:var(--err-fg)}
 
-    .placeholder{color:#475569;font-size:.875rem;padding:48px;text-align:center}
+    /* Scrollbar */
+    .event-list::-webkit-scrollbar,.modal-body::-webkit-scrollbar{width:8px}
+    .event-list::-webkit-scrollbar-thumb,.modal-body::-webkit-scrollbar-thumb{background:var(--border);border-radius:8px}
   </style>
 </head>
 <body>
-  <header>
-    <div class="dot" id="conn-dot"></div>
-    <h1>RPi Sentinel — Cloud Dashboard</h1>
-    <span class="conn-label" id="conn-label">Connecting…</span>
+  <header class="topbar">
+    <div class="brand"><span class="logo">S</span>RPi Sentinel</div>
+    <div class="conn"><span class="dot" id="conn-dot"></span><span id="conn-label">Connecting…</span></div>
+    <div class="spacer"></div>
+    <span class="updated" id="updated"></span>
+    <button class="icon-btn" id="config-btn" title="Configure thresholds">⚙ Config</button>
+    <button class="icon-btn" id="theme-btn" title="Toggle theme">☾</button>
   </header>
 
-  <div class="sensors-grid" id="sensors-grid">
-    <div class="card" id="placeholder-card">
-      <p class="placeholder">Waiting for sensor data…</p>
+  <main>
+    <section>
+      <div class="section-title">Sensors <span class="count-pill" id="sensor-count">0</span></div>
+      <div class="sensors-grid" id="sensors-grid">
+        <div class="card" id="placeholder-card"><p class="placeholder">Waiting for sensor data…</p></div>
+      </div>
+    </section>
+
+    <aside class="rail">
+      <div class="card">
+        <div class="rail-head">
+          <h2>Alert timeline</h2>
+          <span class="count-pill" id="alert-count" style="margin-left:auto">0</span>
+        </div>
+        <ul class="event-list" id="events">
+          <li><span class="empty">No alerts yet</span></li>
+        </ul>
+      </div>
+    </aside>
+  </main>
+
+  <div class="modal-backdrop" id="config-modal">
+    <div class="modal">
+      <div class="modal-head">
+        <h3>Threshold configuration</h3>
+        <button class="modal-close" id="modal-close" aria-label="Close">✕</button>
+      </div>
+      <div class="modal-body">
+        <div id="config-rows"><span class="empty">Waiting for RPi…</span></div>
+      </div>
     </div>
   </div>
-
-  <div class="card alerts-card">
-    <h2>Recent Alerts</h2>
-    <ul class="event-list" id="events">
-      <li><span class="empty">No alerts</span></li>
-    </ul>
-  </div>
-
-  <div class="card" style="margin-top:16px" id="config-card">
-    <h2>Configuration</h2>
-    <div id="config-rows"><span class="empty">Waiting for RPi…</span></div>
-  </div>
-
-  <div class="updated" id="updated"></div>
 
 <script>
 // ── Configuration ──────────────────────────────────────────────────────────────
@@ -92,7 +180,7 @@ const TOPIC_PREFIX = 'rpi';
 // ──────────────────────────────────────────────────────────────────────────────
 
 const MAX_HISTORY = 120;
-const MAX_EVENTS  = 30;
+const MAX_EVENTS  = 50;
 
 const charts           = {};
 const history          = {};
@@ -100,16 +188,14 @@ const events           = [];
 const sensorThresholds = {};
 
 const palette = [
-  { border: '#38bdf8', bg: 'rgba(56,189,248,0.08)'  },
-  { border: '#a78bfa', bg: 'rgba(167,139,250,0.08)' },
-  { border: '#34d399', bg: 'rgba(52,211,153,0.08)'  },
-  { border: '#fb923c', bg: 'rgba(251,146,60,0.08)'  },
-  { border: '#f472b6', bg: 'rgba(244,114,182,0.08)' },
+  { border: '#0ea5e9', bg: 'rgba(14,165,233,0.10)' },
+  { border: '#8b5cf6', bg: 'rgba(139,92,246,0.10)' },
+  { border: '#10b981', bg: 'rgba(16,185,129,0.10)' },
+  { border: '#f97316', bg: 'rgba(249,115,22,0.10)' },
+  { border: '#ec4899', bg: 'rgba(236,72,153,0.10)' },
 ];
 
-function domId(sensorId) {
-  return sensorId.replace(/[^a-zA-Z0-9_-]/g, '_');
-}
+function domId(sensorId) { return sensorId.replace(/[^a-zA-Z0-9_-]/g, '_'); }
 
 function fmt(iso) {
   return new Date(iso).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', second:'2-digit'});
@@ -128,11 +214,14 @@ function setConnStatus(state) {
   }[state] ?? state;
 }
 
+function cssVar(name) {
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+}
+
 function ensureCard(sensorId, metric) {
   const sid = domId(sensorId);
   if (document.getElementById('card-' + sid)) return;
 
-  // Remove placeholder once a real card arrives
   const ph = document.getElementById('placeholder-card');
   if (ph) ph.remove();
 
@@ -141,12 +230,22 @@ function ensureCard(sensorId, metric) {
   card.id        = 'card-' + sid;
   card.className = 'card';
   card.innerHTML = `
-    <h2>${sensorId}<span class="metric-tag">${metric}</span></h2>
-    <div><span class="sensor-value" id="val-${sid}">--</span></div>
-    <span class="status ok" id="status-${sid}">--</span>
-    <canvas id="chart-${sid}" height="140" style="margin-top:14px"></canvas>
+    <div class="sensor-head">
+      <span class="sensor-name">${sensorId}</span>
+      <span class="metric-tag">${metric}</span>
+      <span class="status ok" id="status-${sid}">--</span>
+    </div>
+    <div class="sensor-row">
+      <span class="sensor-value" id="val-${sid}">--</span>
+      <span class="trend" id="trend-${sid}"></span>
+    </div>
+    <div class="stats" id="stats-${sid}">
+      <span>min <b>--</b></span><span>avg <b>--</b></span><span>max <b>--</b></span>
+    </div>
+    <div class="chart-wrap"><canvas id="chart-${sid}"></canvas></div>
   `;
   document.getElementById('sensors-grid').appendChild(card);
+  document.getElementById('sensor-count').textContent = Object.keys(charts).length + 1;
 
   charts[sensorId] = new Chart(
     document.getElementById('chart-' + sid).getContext('2d'), {
@@ -165,6 +264,7 @@ function ensureCard(sensorId, metric) {
     },
     options: {
       responsive: true,
+      maintainAspectRatio: false,
       animation: false,
       interaction: { intersect: false, mode: 'index' },
       plugins: {
@@ -172,11 +272,37 @@ function ensureCard(sensorId, metric) {
         tooltip: { callbacks: { label: ctx => ctx.parsed.y.toFixed(2) } }
       },
       scales: {
-        x: { ticks: { color:'#475569', maxTicksLimit:6, maxRotation:0 }, grid: { color:'#1e293b' } },
-        y: { ticks: { color:'#475569', callback: v => v.toFixed(1) },   grid: { color:'#334155' } }
+        x: { ticks: { color:cssVar('--muted-2'), maxTicksLimit:5, maxRotation:0, font:{size:10} }, grid: { color:cssVar('--grid') } },
+        y: { ticks: { color:cssVar('--muted-2'), callback: v => v.toFixed(1), font:{size:10} }, grid: { color:cssVar('--grid') } }
       }
     }
   });
+}
+
+function updateStats(sensorId) {
+  const sid = domId(sensorId);
+  const h   = history[sensorId] || [];
+  if (!h.length) return;
+  let min = Infinity, max = -Infinity, sum = 0;
+  for (const p of h) { if (p.value < min) min = p.value; if (p.value > max) max = p.value; sum += p.value; }
+  const avg = sum / h.length;
+  document.getElementById('stats-' + sid).innerHTML =
+    `<span>min <b>${min.toFixed(1)}</b></span><span>avg <b>${avg.toFixed(1)}</b></span><span>max <b>${max.toFixed(1)}</b></span>`;
+
+  const trendEl = document.getElementById('trend-' + sid);
+  if (h.length >= 5) {
+    const last = h[h.length - 1].value;
+    const prev = h[h.length - 5].value;
+    const diff = last - prev;
+    const pct  = Math.abs(prev) > 1e-9 ? (diff / Math.abs(prev)) * 100 : 0;
+    if (Math.abs(pct) < 0.5) {
+      trendEl.className = 'trend'; trendEl.textContent = '→ stable';
+    } else if (diff > 0) {
+      trendEl.className = 'trend up'; trendEl.textContent = `↑ ${diff >= 0 ? '+' : ''}${diff.toFixed(1)}`;
+    } else {
+      trendEl.className = 'trend down'; trendEl.textContent = `↓ ${diff.toFixed(1)}`;
+    }
+  }
 }
 
 function handleReading(sensorId, data) {
@@ -190,17 +316,15 @@ function handleReading(sensorId, data) {
   document.getElementById('val-' + sid).textContent = data.value.toFixed(1);
 
   const s = document.getElementById('status-' + sid);
-  if (s.textContent === '--') {
-    s.textContent = 'OK';
-    s.className   = 'status ok';
-  }
+  if (s.textContent === '--') { s.textContent = 'OK'; s.className = 'status ok'; }
 
   const chart = charts[sensorId];
   chart.data.labels           = history[sensorId].map(h => fmt(h.timestamp));
   chart.data.datasets[0].data = history[sensorId].map(h => h.value);
   chart.update('none');
 
-  document.getElementById('updated').textContent = 'Updated: ' + new Date().toLocaleTimeString();
+  updateStats(sensorId);
+  document.getElementById('updated').textContent = 'Updated ' + new Date().toLocaleTimeString();
 }
 
 function handleAlert(sensorId, data) {
@@ -220,23 +344,52 @@ function handleAlert(sensorId, data) {
 
 function renderEvents() {
   const ul = document.getElementById('events');
+  document.getElementById('alert-count').textContent = events.length;
   if (!events.length) {
-    ul.innerHTML = '<li><span class="empty">No alerts</span></li>';
+    ul.innerHTML = '<li><span class="empty">No alerts yet</span></li>';
     return;
   }
   ul.innerHTML = events.map(e => `
     <li>
       <span class="badge ${e.type === 'EXCEEDED' ? 'exceeded' : 'recovered'}">
-        ${e.type === 'EXCEEDED' ? '▲ Exceeded' : '▼ Recovered'}
+        ${e.type === 'EXCEEDED' ? '▲' : '▼'}
       </span>
       <span class="event-sensor">${e.sensor_id}</span>
-      ${e.metric}=${e.value.toFixed(1)} &nbsp;/&nbsp; threshold&nbsp;${e.threshold.toFixed(1)}
       <span class="ts">${fmt(e.timestamp)}</span>
+      <span class="det">${e.metric}=${e.value.toFixed(1)} · threshold ${e.threshold.toFixed(1)}</span>
     </li>`).join('');
 }
 
-// ── MQTT connection ────────────────────────────────────────────────────────────
+// ── Theme toggle ───────────────────────────────────────────────────────────────
+function applyTheme(t) {
+  document.documentElement.setAttribute('data-theme', t);
+  document.getElementById('theme-btn').textContent = t === 'dark' ? '☀' : '☾';
+  // Update chart axis colors on theme change
+  for (const id in charts) {
+    const c = charts[id];
+    c.options.scales.x.ticks.color = cssVar('--muted-2');
+    c.options.scales.x.grid.color  = cssVar('--grid');
+    c.options.scales.y.ticks.color = cssVar('--muted-2');
+    c.options.scales.y.grid.color  = cssVar('--grid');
+    c.update('none');
+  }
+}
+document.getElementById('theme-btn').addEventListener('click', () => {
+  const current = document.documentElement.getAttribute('data-theme') || 'light';
+  const next = current === 'dark' ? 'light' : 'dark';
+  localStorage.setItem('rpi-sentinel-theme', next);
+  applyTheme(next);
+});
+applyTheme(localStorage.getItem('rpi-sentinel-theme') || 'light');
 
+// ── Config modal ───────────────────────────────────────────────────────────────
+const modal = document.getElementById('config-modal');
+document.getElementById('config-btn').addEventListener('click', () => modal.classList.add('open'));
+document.getElementById('modal-close').addEventListener('click', () => modal.classList.remove('open'));
+modal.addEventListener('click', e => { if (e.target === modal) modal.classList.remove('open'); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') modal.classList.remove('open'); });
+
+// ── MQTT connection ────────────────────────────────────────────────────────────
 const client = mqtt.connect(BROKER_WSS, {
   username:        MQTT_USER,
   password:        MQTT_PASS,
@@ -252,9 +405,7 @@ client.on('connect', () => {
     `${TOPIC_PREFIX}/+/alert`,
     `${TOPIC_PREFIX}/status`,
     `${TOPIC_PREFIX}/config/current`,
-  ], err => {
-    if (err) console.error('Subscribe error:', err);
-  });
+  ], err => { if (err) console.error('Subscribe error:', err); });
 });
 
 client.on('disconnect', () => setConnStatus('disconnected'));
@@ -262,7 +413,6 @@ client.on('offline',    () => setConnStatus('disconnected'));
 client.on('error',      () => setConnStatus('error'));
 client.on('reconnect',  () => setConnStatus('Connecting'));
 
-// If no retained rpi/status arrives within 3s, assume RPi is offline
 client.on('connect', () => {
   setTimeout(() => {
     const label = document.getElementById('conn-label').textContent;
