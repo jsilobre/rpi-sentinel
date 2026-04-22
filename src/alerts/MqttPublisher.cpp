@@ -146,7 +146,7 @@ void MqttPublisher::on_message_cb(struct mosquitto*, void* userdata,
 
 void MqttPublisher::handle_message(const struct mosquitto_message* msg)
 {
-    if (!msg || !msg->payload || msg->topic != config_topic_set_) return;
+    if (!msg || !msg->payload || config_topic_set_ != msg->topic) return;
 
     const std::string payload(static_cast<const char*>(msg->payload),
                               static_cast<std::size_t>(msg->payloadlen));

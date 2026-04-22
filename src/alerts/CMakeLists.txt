@@ -3,6 +3,7 @@ add_library(alerts STATIC
 )
 
 target_include_directories(alerts PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(alerts PRIVATE nlohmann_json::nlohmann_json)
 apply_compiler_options(alerts)
 
 if(ENABLE_MQTT)

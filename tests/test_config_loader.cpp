@@ -4,10 +4,12 @@
 #include <filesystem>
 #include <fstream>
 
-// Writes a temporary JSON file and returns its path.
+// Writes a temporary JSON file named after the current test and returns its path.
 static std::filesystem::path write_tmp(const std::string& content)
 {
-    auto path = std::filesystem::temp_directory_path() / "rpi_test_config.json";
+    const auto* info = ::testing::UnitTest::GetInstance()->current_test_info();
+    std::string name = info ? info->name() : "unknown";
+    auto path = std::filesystem::temp_directory_path() / ("rpi_test_" + name + ".json");
     std::ofstream(path) << content;
     return path;
 }
