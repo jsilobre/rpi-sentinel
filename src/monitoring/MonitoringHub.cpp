@@ -15,7 +15,8 @@ static auto make_sensor(const SensorConfig& sc) -> std::unique_ptr<ISensorReader
         case SensorType::DS18B20:
             return std::make_unique<DS18B20Reader>(sc.device_path, sc.id, sc.metric);
         case SensorType::Simulated:
-            return std::make_unique<SimulatedSensor>(sc.id, sc.metric);
+            return std::make_unique<SimulatedSensor>(sc.id, sc.metric,
+                SimulatedSensor::make_for_metric(sc.metric));
     }
     return std::make_unique<SimulatedSensor>(sc.id, sc.metric);
 }

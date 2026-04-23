@@ -20,6 +20,8 @@ public:
     auto sensor_id() const -> std::string override;
 
     static auto make_sinusoidal(float base, float amplitude, float period_seconds) -> Generator;
+    static auto make_motion(float period_seconds = 25.0f, float active_seconds = 5.0f) -> Generator;
+    static auto make_for_metric(std::string_view metric) -> Generator;
 
 private:
     std::string sensor_id_;

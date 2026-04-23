@@ -80,13 +80,14 @@ ctest --test-dir build --output-on-failure
 ./build/rpi-sentinel
 ```
 
-Expected output (simulated sensor):
+Expected output (simulated sensors — BME280, DHT11, HC-SR501):
 ```
 [main] Config loaded from 'config.json'
-[MonitoringHub] 1 monitor(s) configured.
+[MonitoringHub] 6 monitor(s) configured.
 [main] Monitors started. Press Ctrl+C to stop.
-[2025-04-18 14:32:01] [EXCEEDED]  sensor=sim-temp temperature=68.3 threshold=65.0
-[2025-04-18 14:32:03] [RECOVERED] sensor=sim-temp temperature=62.8 threshold=65.0
+[2026-04-23 14:13:11] [EXCEEDED]  sensor=bme280-pressure pressure=1016.4 threshold=1015.0
+[2026-04-23 14:13:11] [EXCEEDED]  sensor=hcsr501-motion motion=1.0 threshold=0.9
+[2026-04-23 14:13:36] [RECOVERED] sensor=hcsr501-motion motion=0.0 threshold=0.9
 ```
 
 ---

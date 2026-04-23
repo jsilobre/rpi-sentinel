@@ -16,7 +16,7 @@
 ┌─────────────────────────────────────────────────────────┐
 │                        main.cpp                         │
 │  (loads config, creates EventBus + handlers +           │
-│   MonitoringHub, waits for shutdown signal)             │
+│   MonitoringHub, HttpServer, waits for shutdown signal) │
 └────────────┬───────────────────────────────┬────────────┘
              │                               │
              ▼                               ▼
@@ -25,16 +25,21 @@
 │  MonitoringHub         │──────►│  IAlertHandler        │
 │  ThresholdMonitor [×N] │  via  │  LogAlert             │
 │  Config / MonitorConfig│  bus  │  WebAlert             │
-└────────┬───────────────┘       └───────────────────────┘
-         │                                ▲
-         │ read()                         │ via EventBus
-         ▼                               │
+└────────┬───────────────┘       │  MqttPublisher        │
+         │                       └──────────┬────────────┘
+         │ read()                           │
+         ▼                                 ▼
 ┌────────────────────┐           ┌───────────────────────┐
-│   SENSORS          │           │   EVENTS              │
-│  ISensorReader     │           │  SensorEvent          │
-│  DS18B20Reader     │           │  EventBus             │
+│   SENSORS          │           │   WEB                 │
+│  ISensorReader     │           │  WebState             │
+│  DS18B20Reader     │           │  HttpServer           │
 │  SimulatedSensor   │           └───────────────────────┘
 └────────────────────┘
+                                 ┌───────────────────────┐
+                                 │   EVENTS              │
+                                 │  SensorEvent          │
+                                 │  EventBus             │
+                                 └───────────────────────┘
 ```
 
 ### Dependency rule
@@ -56,7 +61,17 @@ No lower layer depends on a higher layer.
 |---|---|
 | `ISensorReader.hpp` | Abstract interface. Defines `read()` and `sensor_id()`. |
 | `DS18B20Reader.hpp/cpp` | Reads `/sys/bus/w1/devices/<id>/temperature` (Linux 1-Wire kernel driver). |
-| `SimulatedSensor.hpp/cpp` | Sensor driven by a generator function (`std::function<float()>`). Defaults to a sinusoidal wave. |
+| `SimulatedSensor.hpp/cpp` | Sensor driven by a generator function (`std::function<float()>`). Uses `make_for_metric()` to select a metric-appropriate waveform. |
+
+**Metric-specific generators** (`SimulatedSensor::make_for_metric`):
+
+| Metric | Generator | Range |
+|---|---|---|
+| `temperature` | sinusoidal — base 22 °C, ±8 °C, period 120 s | 14–30 °C |
+| `humidity` | sinusoidal — base 55 %, ±20 %, period 180 s | 35–75 % |
+| `pressure` | sinusoidal — base 1013 hPa, ±5 hPa, period 300 s | 1008–1018 hPa |
+| `motion` | periodic square wave — active 5 s every 25 s | 0.0 / 1.0 |
+| *(other)* | sinusoidal — base 40, ±30, period 60 s | fallback |
 
 **Core interface:**
 
@@ -164,12 +179,32 @@ The `warn_active_` / `crit_active_` state is maintained across polling cycles wi
 |---|---|
 | `IAlertHandler.hpp` | Interface: `on_event(const SensorEvent&)`. |
 | `LogAlert.hpp/cpp` | Prints to stdout using `std::println` and `std::format`. |
+| `MqttPublisher.hpp/cpp` | Publishes events to an MQTT broker (HiveMQ Cloud or any broker). Enabled via `config.json`. |
 
 **Adding a new handler:**
 1. Create a class that inherits from `IAlertHandler`.
 2. Register it with the `EventBus` at startup (`bus.register_handler(...)`).
 
-Possible examples: sending email (SMTP), writing to a database, toggling a GPIO, MQTT notification.
+---
+
+### 3.5 `web` layer
+
+| File | Role |
+|---|---|
+| `WebState.hpp/cpp` | Thread-safe in-memory state: current value, status, and up to 120 readings of history per sensor. |
+| `WebAlert.hpp/cpp` | `IAlertHandler` implementation that feeds `WebState` on each event. |
+| `HttpServer.hpp/cpp` | Embedded HTTP server (cpp-httplib). Serves the dashboard HTML and JSON APIs. |
+
+**Endpoints:**
+
+| Endpoint | Method | Description |
+|---|---|---|
+| `/` | GET | Dashboard HTML (Chart.js, auto-refresh every 2 s) |
+| `/api/state` | GET | Current readings, history, and recent alerts (JSON) |
+| `/api/config` | GET | Sensor thresholds |
+| `/api/config` | POST | Update thresholds at runtime (no restart required) |
+
+The dashboard automatically creates one card per sensor with units (`°C`, `%`, `hPa`) and renders motion as a step chart with `Detected` / `Clear` labels.
 
 ---
 
@@ -182,12 +217,13 @@ Possible examples: sending email (SMTP), writing to a database, toggling a GPIO,
 │ + read()         │        │ + on_event(event)      │
 │ + sensor_id()    │        └───────────┬────────────┘
 └──────┬───────────┘                    │ implements
-       │ implements             ┌───────┴──────┐
-   ┌───┴──────────┐             │   LogAlert   │
-   │ DS18B20Reader│             ├──────────────┤
-   ├──────────────┤             │   WebAlert   │
-   │SimulatedSensor│            └──────────────┘
-   └───────────────┘
+       │ implements             ┌───────┴──────────┐
+   ┌───┴──────────┐             │   LogAlert       │
+   │ DS18B20Reader│             ├──────────────────┤
+   ├──────────────┤             │   WebAlert       │
+   │SimulatedSensor│            ├──────────────────┤
+   └───────────────┘            │   MqttPublisher  │
+                                └──────────────────┘
 
 ┌──────────────────────────────────────┐
 │           MonitoringHub              │

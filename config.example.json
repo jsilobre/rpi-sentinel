@@ -1,0 +1,63 @@
+{
+    // Global monitoring settings
+    "hysteresis": 2.0,
+    // Sensor polling interval (milliseconds)
+    "poll_interval_ms": 2000,
+    // Web dashboard
+    "web_enabled": true,
+    "web_port": 8080,
+    // MQTT cloud publishing (HiveMQ Cloud or any MQTT broker)
+    // Fill in your credentials and set "enabled": true to activate
+    "mqtt": {
+        "enabled": false,
+        "broker_url": "ssl://YOUR_CLUSTER.hivemq.cloud:8883",
+        "username": "YOUR_PUBLISHER_USER",
+        "password": "YOUR_PUBLISHER_PASSWORD",
+        "topic_prefix": "rpi"
+    },
+    // List of sensors to monitor
+    "sensors": [
+        {
+            "id": "bme280-temp",
+            "type": "simulated",
+            "metric": "temperature",
+            "threshold_warn": 26.0,
+            "threshold_crit": 28.0
+        },
+        {
+            "id": "bme280-humidity",
+            "type": "simulated",
+            "metric": "humidity",
+            "threshold_warn": 65.0,
+            "threshold_crit": 75.0
+        },
+        {
+            "id": "bme280-pressure",
+            "type": "simulated",
+            "metric": "pressure",
+            "threshold_warn": 1015.0,
+            "threshold_crit": 1018.0
+        },
+        {
+            "id": "dht11-temp",
+            "type": "simulated",
+            "metric": "temperature",
+            "threshold_warn": 25.0,
+            "threshold_crit": 28.0
+        },
+        {
+            "id": "dht11-humidity",
+            "type": "simulated",
+            "metric": "humidity",
+            "threshold_warn": 68.0,
+            "threshold_crit": 78.0
+        },
+        {
+            "id": "hcsr501-motion",
+            "type": "simulated",
+            "metric": "motion",
+            "threshold_warn": 0.5,
+            "threshold_crit": 0.9
+        }
+    ]
+}

@@ -41,4 +41,23 @@ auto SimulatedSensor::make_sinusoidal(float base, float amplitude, float period_
     };
 }
 
+auto SimulatedSensor::make_motion(float period_seconds, float active_seconds) -> Generator
+{
+    return [period_seconds, active_seconds]() -> float {
+        using namespace std::chrono;
+        auto now     = steady_clock::now().time_since_epoch();
+        auto seconds = duration<float>(now).count();
+        return (std::fmod(seconds, period_seconds) < active_seconds) ? 1.0f : 0.0f;
+    };
+}
+
+auto SimulatedSensor::make_for_metric(std::string_view metric) -> Generator
+{
+    if (metric == "temperature") return make_sinusoidal(22.0f, 8.0f, 120.0f);
+    if (metric == "humidity")    return make_sinusoidal(55.0f, 20.0f, 180.0f);
+    if (metric == "pressure")    return make_sinusoidal(1013.0f, 5.0f, 300.0f);
+    if (metric == "motion")      return make_motion();
+    return make_sinusoidal(40.0f, 30.0f, 60.0f);
+}
+
 } // namespace rpi

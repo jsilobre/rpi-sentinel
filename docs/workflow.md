@@ -154,8 +154,12 @@ type based on each `SensorConfig`:
 ```
 SensorConfig::type
    │
-   ├─ SensorType::Simulated  →  SimulatedSensor(id, metric)
-   │                               └─ sinusoidal: base=40, amplitude=30, period=60s
+   ├─ SensorType::Simulated  →  SimulatedSensor(id, metric, make_for_metric(metric))
+   │                               ├─ "temperature" → sinusoidal 22 °C ±8, period 120 s
+   │                               ├─ "humidity"    → sinusoidal 55 % ±20, period 180 s
+   │                               ├─ "pressure"    → sinusoidal 1013 hPa ±5, period 300 s
+   │                               ├─ "motion"      → square wave, 5 s on / 20 s off
+   │                               └─ (other)       → sinusoidal 40 ±30, period 60 s
    │
    └─ SensorType::DS18B20    →  DS18B20Reader(device_path, id, metric)
                                   └─ reads /sys/bus/w1/devices/<id>/temperature
@@ -170,9 +174,8 @@ and restart the process.
 
 | Need | Recommended approach |
 |---|---|
-| Email / MQTT alert | New `IAlertHandler` class registered in `main()` |
+| Email alert | New `IAlertHandler` class registered in `main()` |
 | Measurement persistence | Dedicated handler writing to SQLite or InfluxDB |
 | N consecutive errors → alert | Counter in `ThresholdMonitor::run()`, new enum in `SensorEvent::Type` |
-| Per-sensor dashboard charts | Index `WebState::history_` by `sensor_id` |
 | Dynamic config reload (no restart) | `MonitoringHub::reload(Config)` with stop/restart of affected monitors |
 | Rate-of-change alert | New monitor type implementing `ISensorReader` + derivative logic |

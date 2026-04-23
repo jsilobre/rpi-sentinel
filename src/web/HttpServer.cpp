@@ -94,6 +94,7 @@ static constexpr std::string_view DASHBOARD_HTML = R"HTML(<!DOCTYPE html>
 
 <script>
 const charts = {};
+const sensorMeta = {};
 const palette = [
   { border: '#38bdf8', bg: 'rgba(56,189,248,0.08)'  },
   { border: '#a78bfa', bg: 'rgba(167,139,250,0.08)' },
@@ -106,11 +107,21 @@ function domId(sensorId) {
   return sensorId.replace(/[^a-zA-Z0-9_-]/g, '_');
 }
 
+function formatValue(metric, value) {
+  if (metric === 'motion')      return value >= 0.5 ? 'Detected' : 'Clear';
+  if (metric === 'pressure')    return value.toFixed(0) + ' hPa';
+  if (metric === 'humidity')    return value.toFixed(1) + '%';
+  if (metric === 'temperature') return value.toFixed(1) + '°C';
+  return value.toFixed(1);
+}
+
 function ensureCard(sensor) {
+  sensorMeta[sensor.id] = sensor.metric;
   const sid = domId(sensor.id);
   if (document.getElementById('card-' + sid)) return;
 
-  const col = palette[Object.keys(charts).length % palette.length];
+  const col     = palette[Object.keys(charts).length % palette.length];
+  const isMotion = sensor.metric === 'motion';
 
   const card = document.createElement('div');
   card.id        = 'card-' + sid;
@@ -133,7 +144,8 @@ function ensureCard(sensor) {
         borderColor: col.border,
         backgroundColor: col.bg,
         borderWidth: 2,
-        tension: 0.3,
+        tension: isMotion ? 0 : 0.3,
+        stepped: isMotion ? 'before' : false,
         fill: true,
         pointRadius: 0,
       }]
@@ -144,11 +156,17 @@ function ensureCard(sensor) {
       interaction: { intersect: false, mode: 'index' },
       plugins: {
         legend: { display: false },
-        tooltip: { callbacks: { label: ctx => ctx.parsed.y.toFixed(2) } }
+        tooltip: { callbacks: { label: ctx => {
+          const m = sensorMeta[sensor.id];
+          if (m === 'motion') return ctx.parsed.y >= 0.5 ? 'Detected' : 'Clear';
+          return formatValue(m, ctx.parsed.y);
+        }}}
       },
       scales: {
         x: { ticks: { color:'#475569', maxTicksLimit:6, maxRotation:0 }, grid: { color:'#1e293b' } },
-        y: { ticks: { color:'#475569', callback: v => v.toFixed(1) },   grid: { color:'#334155' } }
+        y: isMotion
+          ? { min: -0.1, max: 1.5, ticks: { color:'#475569', callback: v => v === 0 ? 'Clear' : v === 1 ? 'On' : '' }, grid: { color:'#334155' } }
+          : { ticks: { color:'#475569', callback: v => formatValue(sensorMeta[sensor.id], v) }, grid: { color:'#334155' } }
       }
     }
   });
@@ -167,7 +185,7 @@ async function refresh() {
       const sid = domId(sensor.id);
 
       if (sensor.has_reading) {
-        document.getElementById('val-' + sid).textContent = sensor.current_value.toFixed(1);
+        document.getElementById('val-' + sid).textContent = formatValue(sensor.metric, sensor.current_value);
         const s = document.getElementById('status-' + sid);
         s.textContent = sensor.status === 'ok' ? 'OK' : 'Alert';
         s.className   = 'status ' + sensor.status;
