@@ -9,6 +9,7 @@ namespace rpi {
 enum class SensorType {
     DS18B20,
     Simulated,
+    DHT11,
 };
 
 struct SensorConfig {
