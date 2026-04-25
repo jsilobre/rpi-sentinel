@@ -308,6 +308,7 @@ function updateStats(sensorId) {
 }
 
 function handleReading(sensorId, data) {
+  if (knownSensorIds.size > 0 && !knownSensorIds.has(sensorId)) return;
   ensureCard(sensorId, data.metric ?? '');
 
   if (!history[sensorId]) history[sensorId] = [];
