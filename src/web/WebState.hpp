@@ -22,6 +22,11 @@ public:
     void push_reading(const SensorEvent& event);
     void push_alert(const SensorEvent& event);
 
+    // Replaces (or initialises) a sensor's history with `points` (assumed ASC chronological).
+    // Sets has_reading + current_value from the last point if any.
+    void prime_history(const std::string& sensor_id, const std::string& metric,
+                       std::vector<HistoryPoint> points);
+
     struct SensorSnapshot {
         std::string               id;
         std::string               metric;

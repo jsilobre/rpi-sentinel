@@ -29,6 +29,13 @@ struct MqttConfig {
     std::string topic_prefix = "rpi";
 };
 
+struct HistoryConfig {
+    bool        enabled               = true;
+    std::string db_path               = "data/history.db";
+    int         retention_days        = 7;
+    int         max_points_per_sensor = 50000;
+};
+
 struct Config {
     std::vector<SensorConfig> sensors;
     float                     hysteresis    = 2.0f;
@@ -36,6 +43,7 @@ struct Config {
     bool                      web_enabled   = true;
     uint16_t                  web_port      = 8080;
     MqttConfig                mqtt;
+    HistoryConfig             history;
 };
 
 } // namespace rpi

@@ -170,12 +170,36 @@ and restart the process.
 
 ---
 
-## 8. Possible evolutions
+## 8. Reading lifecycle (with persistence)
+
+A single periodic poll cycle now fans out to four handlers:
+
+```
+ThresholdMonitor::run()
+   │ sensor.read()
+   ▼
+EventBus::dispatch(SensorEvent::Reading)
+   │
+   ├─► LogAlert              (stdout, optional)
+   ├─► WebAlert               → WebState (in-memory, 120 points/sensor)
+   ├─► SqliteHistoryHandler   → HistoryStore::insert()  (SQLite WAL, durable)
+   └─► MqttPublisher          → rpi/{sensor}/reading    (QoS=1, retain=true)
+```
+
+At daemon startup, `main.cpp` walks each configured sensor and primes `WebState`
+from `HistoryStore::recent(MAX_HISTORY)` so `/api/state` returns a non-empty
+history immediately after a restart. The cloud dashboard hydrates separately
+via the MQTT history-on-demand protocol — see [persistence.md](persistence.md).
+
+---
+
+## 9. Possible evolutions
 
 | Need | Recommended approach |
 |---|---|
 | Email alert | New `IAlertHandler` class registered in `main()` |
-| Measurement persistence | Dedicated handler writing to SQLite or InfluxDB |
+| Persistent threshold-crossing log | Add an `events` table to `HistoryStore` and write on Exceeded/Recovered (next to readings) |
 | N consecutive errors → alert | Counter in `ThresholdMonitor::run()`, new enum in `SensorEvent::Type` |
 | Dynamic config reload (no restart) | `MonitoringHub::reload(Config)` with stop/restart of affected monitors |
 | Rate-of-change alert | New monitor type implementing `ISensorReader` + derivative logic |
+| Cross-device shared history | A small cloud worker subscribing to MQTT and exposing REST (instead of the current Pi-local SQLite) |

@@ -15,18 +15,19 @@
 ```
 ┌─────────────────────────────────────────────────────────┐
 │                        main.cpp                         │
-│  (loads config, creates EventBus + handlers +           │
-│   MonitoringHub, HttpServer, waits for shutdown signal) │
+│  (loads config, opens HistoryStore + primes WebState,   │
+│   creates EventBus + handlers + MonitoringHub +         │
+│   HttpServer, waits for shutdown signal)                │
 └────────────┬───────────────────────────────┬────────────┘
              │                               │
              ▼                               ▼
-┌────────────────────────┐       ┌───────────────────────┐
-│   MONITORING           │       │   ALERTS              │
-│  MonitoringHub         │──────►│  IAlertHandler        │
-│  ThresholdMonitor [×N] │  via  │  LogAlert             │
-│  Config / MonitorConfig│  bus  │  WebAlert             │
-└────────┬───────────────┘       │  MqttPublisher        │
-         │                       └──────────┬────────────┘
+┌────────────────────────┐       ┌──────────────────────────┐
+│   MONITORING           │       │   ALERTS                 │
+│  MonitoringHub         │──────►│  IAlertHandler           │
+│  ThresholdMonitor [×N] │  via  │  LogAlert / WebAlert     │
+│  Config / MonitorConfig│  bus  │  MqttPublisher           │
+└────────┬───────────────┘       │  SqliteHistoryHandler    │
+         │                       └──────────┬───────────────┘
          │ read()                           │
          ▼                                 ▼
 ┌────────────────────┐           ┌───────────────────────┐
@@ -40,13 +41,19 @@
                                  │  SensorEvent          │
                                  │  EventBus             │
                                  └───────────────────────┘
+                                 ┌───────────────────────┐
+                                 │   PERSISTENCE         │
+                                 │  HistoryStore (SQLite)│
+                                 │  SqliteHistoryHandler │
+                                 └───────────────────────┘
 ```
 
 ### Dependency rule
 
 ```
 main → monitoring → sensors
-                  → events → alerts
+                  → events → alerts → persistence
+                  → web → persistence (read-only at startup)
 ```
 
 No lower layer depends on a higher layer.
@@ -179,7 +186,7 @@ The `warn_active_` / `crit_active_` state is maintained across polling cycles wi
 |---|---|
 | `IAlertHandler.hpp` | Interface: `on_event(const SensorEvent&)`. |
 | `LogAlert.hpp/cpp` | Prints to stdout using `std::println` and `std::format`. |
-| `MqttPublisher.hpp/cpp` | Publishes events to an MQTT broker (HiveMQ Cloud or any broker). Enabled via `config.json`. |
+| `MqttPublisher.hpp/cpp` | Publishes events to an MQTT broker (HiveMQ Cloud or any broker). Enabled via `config.json`. Also subscribes to `rpi/history/req` and serves history-on-demand by querying `HistoryStore` (see [persistence.md](persistence.md)). |
 
 **Adding a new handler:**
 1. Create a class that inherits from `IAlertHandler`.
@@ -191,9 +198,20 @@ The `warn_active_` / `crit_active_` state is maintained across polling cycles wi
 
 | File | Role |
 |---|---|
-| `WebState.hpp/cpp` | Thread-safe in-memory state: current value, status, and up to 120 readings of history per sensor. |
+| `WebState.hpp/cpp` | Thread-safe in-memory state: current value, status, and up to 120 readings of history per sensor. `prime_history()` repopulates a sensor's history at startup from `HistoryStore` so `/api/state` is non-empty after a daemon restart. |
 | `WebAlert.hpp/cpp` | `IAlertHandler` implementation that feeds `WebState` on each event. |
 | `HttpServer.hpp/cpp` | Embedded HTTP server (cpp-httplib). Serves the dashboard HTML and JSON APIs. |
+
+---
+
+### 3.6 `persistence` layer
+
+| File | Role |
+|---|---|
+| `HistoryStore.hpp/cpp` | SQLite-backed persistent ring buffer of sensor readings. Single table `readings(sensor_id, ts, value, metric)` with WAL journal. Provides `insert`, `recent(limit)`, `since(ts, limit)`, `metric_for`, and `rotate()` (time- and count-based). |
+| `SqliteHistoryHandler.hpp/cpp` | `IAlertHandler` that writes every `Reading` event to `HistoryStore`. Threshold events are ignored. |
+
+The DB lives at `data/history.db` by default (configurable). Retention and per-sensor row caps come from the `history` block in `config.json`. See [persistence.md](persistence.md) for the schema, rotation policy, and the MQTT history-on-demand protocol used by the cloud dashboard.
 
 **Endpoints:**
 
@@ -249,6 +267,17 @@ The dashboard automatically creates one card per sensor with units (`°C`, `%`, 
 │ - mutex_    : std::mutex             │
 │ + register_handler(handler)          │
 │ + dispatch(SensorEvent)              │
+└──────────────────────────────────────┘
+
+┌──────────────────────────────────────┐
+│            HistoryStore              │
+│ - db_                : sqlite3*      │
+│ - retention_days_    : int           │
+│ - max_points_/sensor : int           │
+│ + insert(sid, metric, val, ts)       │
+│ + recent(sid, limit) / since(...)    │
+│ + metric_for(sid)                    │
+│ + rotate()                           │
 └──────────────────────────────────────┘
 ```
 

@@ -11,8 +11,14 @@
 
 **Ubuntu 24.04:**
 ```bash
-sudo apt-get install -y g++-14 cmake ninja-build
+sudo apt-get install -y g++-14 cmake ninja-build libsqlite3-dev libmosquitto-dev
 ```
+
+`libsqlite3-dev` is required for the persistence layer (`HistoryStore`).
+`libmosquitto-dev` is optional — it auto-enables the MQTT integration.
+
+The daemon creates `data/` automatically next to the working directory (default
+DB path `data/history.db`), so make sure the working directory is writable.
 
 ---
 
@@ -29,6 +35,8 @@ src/
   events/CMakeLists.txt        ← static lib: events  (depends on alerts)
   sensors/CMakeLists.txt       ← static lib: sensors
   monitoring/CMakeLists.txt    ← static lib: monitoring (depends on sensors, events)
+  persistence/CMakeLists.txt   ← static lib: persistence (sqlite3, depends on alerts, events)
+  web/CMakeLists.txt           ← static lib: web
 tests/
   CMakeLists.txt               ← FetchContent GTest + rpi_tests executable
 ```
@@ -37,10 +45,12 @@ tests/
 
 ```
 rpi-sentinel
-  └─ monitoring
-       ├─ sensors
-       └─ events
-            └─ alerts
+  ├─ monitoring
+  │    ├─ sensors
+  │    └─ events
+  │         └─ alerts (links persistence when ENABLE_MQTT=ON, for history responder)
+  ├─ web
+  └─ persistence (links sqlite3)
 ```
 
 ---

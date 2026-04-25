@@ -1,10 +1,15 @@
 include(FetchContent)
 find_package(PkgConfig QUIET)
 
-# MQTT support — auto-detected via pkg-config, overridable with -DENABLE_MQTT=ON/OFF
-if(PkgConfig_FOUND)
-    pkg_check_modules(MOSQUITTO QUIET libmosquitto)
+if(NOT PkgConfig_FOUND)
+    message(FATAL_ERROR "pkg-config is required (apt: pkg-config)")
 endif()
+
+# SQLite — required for sensor history persistence
+pkg_check_modules(SQLITE3 REQUIRED sqlite3)
+
+# MQTT support — auto-detected via pkg-config, overridable with -DENABLE_MQTT=ON/OFF
+pkg_check_modules(MOSQUITTO QUIET libmosquitto)
 
 option(ENABLE_MQTT "Enable MQTT publishing via libmosquitto" ${MOSQUITTO_FOUND})
 

@@ -80,10 +80,22 @@ auto load_config(const std::filesystem::path& path) -> std::expected<Config, std
             if (m.contains("topic_prefix")) cfg.mqtt.topic_prefix = m["topic_prefix"].get<std::string>();
         }
 
+        if (j.contains("history") && j["history"].is_object()) {
+            const auto& h = j["history"];
+            if (h.contains("enabled"))               cfg.history.enabled               = h["enabled"].get<bool>();
+            if (h.contains("db_path"))               cfg.history.db_path               = h["db_path"].get<std::string>();
+            if (h.contains("retention_days"))        cfg.history.retention_days        = h["retention_days"].get<int>();
+            if (h.contains("max_points_per_sensor")) cfg.history.max_points_per_sensor = h["max_points_per_sensor"].get<int>();
+        }
+
         if (cfg.hysteresis < 0.0f)
             return std::unexpected("hysteresis must be >= 0");
         if (cfg.poll_interval.count() <= 0)
             return std::unexpected("poll_interval_ms must be > 0");
+        if (cfg.history.retention_days < 1)
+            return std::unexpected("history.retention_days must be >= 1");
+        if (cfg.history.max_points_per_sensor < 1)
+            return std::unexpected("history.max_points_per_sensor must be >= 1");
 
         return cfg;
 
@@ -114,6 +126,12 @@ auto save_config(const std::filesystem::path& path, const Config& config) -> std
         {"username",     config.mqtt.username},
         {"password",     config.mqtt.password},
         {"topic_prefix", config.mqtt.topic_prefix},
+    };
+    j["history"] = {
+        {"enabled",               config.history.enabled},
+        {"db_path",               config.history.db_path},
+        {"retention_days",        config.history.retention_days},
+        {"max_points_per_sensor", config.history.max_points_per_sensor},
     };
 
     nlohmann::json sensors = nlohmann::json::array();

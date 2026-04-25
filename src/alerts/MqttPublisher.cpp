@@ -1,14 +1,16 @@
 #ifdef ENABLE_MQTT
 
 #include "MqttPublisher.hpp"
+#include "../persistence/HistoryStore.hpp"
 
 #include <mosquitto.h>
+#include <algorithm>
+#include <chrono>
 #include <format>
 #include <nlohmann/json.hpp>
 #include <print>
 #include <stdexcept>
 #include <thread>
-#include <chrono>
 
 namespace rpi {
 
@@ -105,9 +107,12 @@ void MqttPublisher::connect()
 
     config_topic_current_ = config_.topic_prefix + "/config/current";
     config_topic_set_     = config_.topic_prefix + "/config/set";
+    history_req_topic_    = config_.topic_prefix + "/history/req";
+    history_resp_prefix_  = config_.topic_prefix + "/history/resp/";
 
     mosquitto_loop_start(mosq_);
     mosquitto_subscribe(mosq_, nullptr, config_topic_set_.c_str(), /*qos=*/1);
+    mosquitto_subscribe(mosq_, nullptr, history_req_topic_.c_str(), /*qos=*/1);
     publish(status_topic, R"({"status":"online"})", true);
     std::println("[MqttPublisher] Connected to {}:{}", addr.host, addr.port);
 }
@@ -132,6 +137,11 @@ void MqttPublisher::set_threshold_callback(ThresholdCallback cb)
     threshold_cb_ = std::move(cb);
 }
 
+void MqttPublisher::set_history_store(std::shared_ptr<HistoryStore> store)
+{
+    history_store_ = std::move(store);
+}
+
 void MqttPublisher::publish_config(const std::string& config_json)
 {
     if (!config_topic_current_.empty())
@@ -146,10 +156,18 @@ void MqttPublisher::on_message_cb(struct mosquitto*, void* userdata,
 
 void MqttPublisher::handle_message(const struct mosquitto_message* msg)
 {
-    if (!msg || !msg->payload || config_topic_set_ != msg->topic) return;
-
+    if (!msg || !msg->payload || !msg->topic) return;
+    const std::string topic(msg->topic);
     const std::string payload(static_cast<const char*>(msg->payload),
                               static_cast<std::size_t>(msg->payloadlen));
+
+    if (topic == history_req_topic_) {
+        handle_history_request(payload);
+        return;
+    }
+
+    if (topic != config_topic_set_) return;
+
     nlohmann::json j;
     try {
         j = nlohmann::json::parse(payload);
@@ -178,6 +196,66 @@ void MqttPublisher::handle_message(const struct mosquitto_message* msg)
         else
             std::println("[MqttPublisher] Thresholds updated: {} warn={} crit={}", id, warn, crit);
     }
+}
+
+std::string MqttPublisher::build_history_response(const std::string& request_payload) const
+{
+    nlohmann::json req;
+    try {
+        req = nlohmann::json::parse(request_payload);
+    } catch (...) {
+        return {};
+    }
+
+    if (!req.contains("request_id") || !req.contains("sensor_id")) return {};
+    const auto request_id = req["request_id"].get<std::string>();
+    const auto sensor_id  = req["sensor_id"].get<std::string>();
+
+    constexpr int kHardCap = 500;
+    int limit = req.contains("limit") ? req["limit"].get<int>() : 240;
+    limit = std::clamp(limit, 1, kHardCap);
+
+    std::vector<StoredPoint> points;
+    if (history_store_) {
+        if (req.contains("since_ts") && req["since_ts"].is_number_integer()) {
+            points = history_store_->since(sensor_id, req["since_ts"].get<int64_t>(), limit);
+        } else {
+            points = history_store_->recent(sensor_id, limit);
+        }
+    }
+
+    std::string metric;
+    if (history_store_) {
+        if (auto m = history_store_->metric_for(sensor_id)) metric = std::move(*m);
+    }
+
+    nlohmann::json out_points = nlohmann::json::array();
+    for (const auto& p : points) {
+        out_points.push_back({{"ts", p.ts_ms}, {"value", p.value}});
+    }
+
+    nlohmann::json resp = {
+        {"request_id", request_id},
+        {"sensor_id",  sensor_id},
+        {"metric",     metric},
+        {"points",     std::move(out_points)},
+        {"truncated",  static_cast<int>(points.size()) >= limit},
+    };
+    return resp.dump();
+}
+
+void MqttPublisher::handle_history_request(const std::string& payload)
+{
+    const std::string body = build_history_response(payload);
+    if (body.empty()) {
+        std::println(stderr, "[MqttPublisher] history/req: invalid request");
+        return;
+    }
+    nlohmann::json j;
+    try { j = nlohmann::json::parse(body); } catch (...) { return; }
+
+    const std::string topic = history_resp_prefix_ + j["request_id"].get<std::string>();
+    publish(topic, body, /*retain=*/false);
 }
 
 void MqttPublisher::on_event(const SensorEvent& event)

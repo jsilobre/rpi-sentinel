@@ -11,12 +11,21 @@ add_executable(rpi_tests
     test_event_bus.cpp
     test_threshold_monitor.cpp
     test_config_loader.cpp
+    test_history_store.cpp
+    test_web_state_hydration.cpp
 )
 
 target_link_libraries(rpi_tests PRIVATE
     monitoring
+    persistence
+    web
     GTest::gtest_main
 )
+
+if(ENABLE_MQTT)
+    target_sources(rpi_tests PRIVATE test_mqtt_history_responder.cpp)
+    target_link_libraries(rpi_tests PRIVATE alerts)
+endif()
 
 apply_compiler_options(rpi_tests)
 
