@@ -187,6 +187,8 @@ const history          = {};
 const events           = [];
 const sensorThresholds = {};
 const knownSensorIds   = new Set();
+let   lastRpiStatus    = null; // 'online' | 'offline' — last confirmed state from broker
+let   firstConnect     = true;
 const pendingHydrations = {};   // request_id → sensorId
 const hydratedSensors   = new Set();  // sensors already hydrated this session
 
@@ -472,15 +474,22 @@ client.on('connect', () => {
 client.on('disconnect', () => setConnStatus('disconnected'));
 client.on('offline',    () => setConnStatus('disconnected'));
 client.on('error',      () => setConnStatus('error'));
-// On reconnect keep the last known RPi state — avoid flashing offline
-// during a transient broker disconnect that resolves in seconds.
-client.on('reconnect',  () => { if (document.getElementById('conn-label').textContent !== 'RPi online') setConnStatus('Connecting'); });
+// On reconnect, restore last known RPi state immediately — no offline flash.
+client.on('reconnect',  () => {
+  if      (lastRpiStatus === 'online')  setConnStatus('connected');
+  else if (lastRpiStatus === 'offline') setConnStatus('rpi_offline');
+  else                                  setConnStatus('Connecting');
+});
 
 client.on('connect', () => {
-  setTimeout(() => {
-    const label = document.getElementById('conn-label').textContent;
-    if (label === 'Connecting…') setConnStatus('rpi_offline');
-  }, 3000);
+  // On first connect only: fall back to rpi_offline if status never arrives.
+  if (firstConnect) {
+    firstConnect = false;
+    setTimeout(() => {
+      const label = document.getElementById('conn-label').textContent;
+      if (label === 'Connecting…') setConnStatus('rpi_offline');
+    }, 5000);
+  }
 });
 
 client.on('message', (topic, message) => {
@@ -489,7 +498,8 @@ client.on('message', (topic, message) => {
   catch { console.warn('Malformed MQTT payload on', topic); return; }
 
   if (topic === `${TOPIC_PREFIX}/status`) {
-    setConnStatus(data.status === 'online' ? 'connected' : 'rpi_offline');
+    lastRpiStatus = data.status === 'online' ? 'online' : 'offline';
+    setConnStatus(lastRpiStatus === 'online' ? 'connected' : 'rpi_offline');
     return;
   }
 
