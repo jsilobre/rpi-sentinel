@@ -123,12 +123,12 @@ void MqttPublisher::disconnect()
     if (mosq_) {
         const std::string topic   = config_.topic_prefix + "/status";
         const std::string payload = R"({"status":"offline"})";
-        // QoS 0 — no ACK wait; retain so broker keeps the last state
+        // QoS 1 + retain — let the loop flush the PUBACK before we disconnect
         mosquitto_publish(mosq_, nullptr, topic.c_str(),
-            static_cast<int>(payload.size()), payload.c_str(), /*qos=*/0, /*retain=*/true);
-        std::this_thread::sleep_for(std::chrono::milliseconds{300});
-        mosquitto_loop_stop(mosq_, /*force=*/true);
-        mosquitto_disconnect(mosq_);
+            static_cast<int>(payload.size()), payload.c_str(), /*qos=*/1, /*retain=*/true);
+        std::this_thread::sleep_for(std::chrono::milliseconds{500});
+        mosquitto_disconnect(mosq_);                 // send MQTT DISCONNECT (loop thread will exit)
+        mosquitto_loop_stop(mosq_, /*force=*/false); // join loop thread cleanly
         std::println("[MqttPublisher] Disconnected");
     }
 }
