@@ -19,6 +19,30 @@ void WebState::push_reading(const SensorEvent& event)
     }
 }
 
+void WebState::prime_history(const std::string& sensor_id, const std::string& metric,
+                             std::vector<HistoryPoint> points)
+{
+    std::lock_guard lock(mutex_);
+    auto& state = sensor_states_[sensor_id];
+    const bool is_new = state.id.empty();
+    if (is_new) {
+        state.id     = sensor_id;
+        state.metric = metric;
+        sensor_order_.push_back(sensor_id);
+    }
+
+    state.history.clear();
+    const size_t start = points.size() > MAX_HISTORY ? points.size() - MAX_HISTORY : 0;
+    for (size_t i = start; i < points.size(); ++i) {
+        state.history.push_back(points[i]);
+    }
+
+    if (!state.history.empty()) {
+        state.has_reading   = true;
+        state.current_value = state.history.back().value;
+    }
+}
+
 void WebState::push_alert(const SensorEvent& event)
 {
     std::lock_guard lock(mutex_);

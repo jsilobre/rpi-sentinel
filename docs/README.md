@@ -7,6 +7,7 @@ Technical reference for current and future development.
 | [architecture.md](architecture.md) | Components, layers, interfaces, dependencies |
 | [workflow.md](workflow.md) | Data flow, event lifecycle, threading model |
 | [build-guide.md](build-guide.md) | Build, tests, CI/CD, RPi deployment |
+| [persistence.md](persistence.md) | History storage (SQLite), MQTT history-on-demand |
 
 ## Quick overview
 
@@ -20,9 +21,10 @@ config.json
                                     │
                                     │ dispatch(SensorEvent)
                                     ▼
-                               EventBus ──► LogAlert / WebAlert / ...
+                               EventBus ──► LogAlert / WebAlert / SqliteHistoryHandler / MqttPublisher
 ```
 
-The project is structured into **4 independent layers** (`sensors`, `events`, `monitoring`, `alerts`)
-connected through abstract interfaces. `MonitoringHub` orchestrates N sensors and monitors
-from the JSON config — `main.cpp` only bootstraps and waits for a shutdown signal.
+The project is structured into **5 independent layers** (`sensors`, `events`, `monitoring`,
+`alerts`, `persistence`) connected through abstract interfaces. `MonitoringHub` orchestrates
+N sensors and monitors from the JSON config — `main.cpp` only bootstraps, primes the web
+state from persisted history, and waits for a shutdown signal.

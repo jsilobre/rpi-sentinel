@@ -3,6 +3,8 @@
 #include "monitoring/MonitoringHub.hpp"
 #include "events/EventBus.hpp"
 #include "alerts/LogAlert.hpp"
+#include "persistence/HistoryStore.hpp"
+#include "persistence/SqliteHistoryHandler.hpp"
 #include "web/WebAlert.hpp"
 #include "web/WebState.hpp"
 #include "web/HttpServer.hpp"
@@ -45,11 +47,42 @@ int main(int argc, char* argv[])
     bus.register_handler(std::make_shared<rpi::LogAlert>());
     bus.register_handler(std::make_shared<rpi::WebAlert>(web_state));
 
+    std::shared_ptr<rpi::HistoryStore> history_store;
+    if (result->history.enabled) {
+        try {
+            history_store = std::make_shared<rpi::HistoryStore>(
+                result->history.db_path,
+                result->history.retention_days,
+                result->history.max_points_per_sensor);
+            bus.register_handler(std::make_shared<rpi::SqliteHistoryHandler>(history_store));
+        } catch (const std::exception& e) {
+            std::println(stderr, "[main] History store error: {}", e.what());
+            history_store.reset();
+        }
+    }
+
+    if (history_store) {
+        for (const auto& s : result->sensors) {
+            auto pts = history_store->recent(s.id, rpi::WebState::MAX_HISTORY);
+            std::vector<rpi::HistoryPoint> hp;
+            hp.reserve(pts.size());
+            for (const auto& p : pts) {
+                hp.push_back({p.value,
+                    std::chrono::system_clock::time_point{
+                        std::chrono::milliseconds{p.ts_ms}}});
+            }
+            if (!hp.empty()) {
+                web_state.prime_history(s.id, s.metric, std::move(hp));
+            }
+        }
+    }
+
 #ifdef ENABLE_MQTT
     std::shared_ptr<rpi::MqttPublisher> mqtt_pub;
     if (result->mqtt.enabled) {
         try {
             mqtt_pub = std::make_shared<rpi::MqttPublisher>(result->mqtt);
+            if (history_store) mqtt_pub->set_history_store(history_store);
             mqtt_pub->connect();
             bus.register_handler(mqtt_pub);
         } catch (const std::exception& e) {

@@ -187,6 +187,8 @@ const history          = {};
 const events           = [];
 const sensorThresholds = {};
 const knownSensorIds   = new Set();
+const pendingHydrations = {};   // request_id → sensorId
+const hydratedSensors   = new Set();  // sensors already hydrated this session
 
 const palette = [
   { border: '#0ea5e9', bg: 'rgba(14,165,233,0.10)' },
@@ -279,6 +281,57 @@ function ensureCard(sensorId, metric) {
       }
     }
   });
+
+  requestHydration(sensorId);
+}
+
+// ── History hydration ──────────────────────────────────────────────────────────
+// Note: the MQTT subscriber user needs publish on rpi/history/req
+// and subscribe on rpi/history/resp/+ in the broker ACL.
+function requestHydration(sensorId) {
+  if (hydratedSensors.has(sensorId)) return;
+  if (Object.values(pendingHydrations).includes(sensorId)) return;
+  if (!client || !client.connected) return;
+
+  const reqId = (crypto.randomUUID && crypto.randomUUID())
+    || (Date.now().toString(36) + Math.random().toString(36).slice(2));
+  pendingHydrations[reqId] = sensorId;
+
+  client.publish(
+    `${TOPIC_PREFIX}/history/req`,
+    JSON.stringify({ request_id: reqId, sensor_id: sensorId, limit: MAX_HISTORY }),
+    { qos: 1, retain: false }
+  );
+
+  setTimeout(() => {
+    if (pendingHydrations[reqId]) delete pendingHydrations[reqId];
+  }, 5000);
+}
+
+function applyHydration(sensorId, points) {
+  if (hydratedSensors.has(sensorId)) return;
+  hydratedSensors.add(sensorId);
+
+  if (!charts[sensorId]) return;
+  if (!history[sensorId]) history[sensorId] = [];
+
+  const live = history[sensorId];
+  const liveOldestMs = live.length ? new Date(live[0].timestamp).getTime() : Infinity;
+
+  const historical = points
+    .filter(p => p.ts < liveOldestMs)
+    .map(p => ({ value: p.value, timestamp: new Date(p.ts).toISOString() }));
+
+  const merged = historical.concat(live);
+  history[sensorId] = merged.length > MAX_HISTORY
+    ? merged.slice(merged.length - MAX_HISTORY)
+    : merged;
+
+  const chart = charts[sensorId];
+  chart.data.labels           = history[sensorId].map(h => fmt(h.timestamp));
+  chart.data.datasets[0].data = history[sensorId].map(h => h.value);
+  chart.update('none');
+  updateStats(sensorId);
 }
 
 function updateStats(sensorId) {
@@ -408,7 +461,12 @@ client.on('connect', () => {
     `${TOPIC_PREFIX}/+/alert`,
     `${TOPIC_PREFIX}/status`,
     `${TOPIC_PREFIX}/config/current`,
+    `${TOPIC_PREFIX}/history/resp/+`,
   ], err => { if (err) console.error('Subscribe error:', err); });
+
+  // Re-request hydration for any sensors that already have a card but
+  // haven't been hydrated yet (e.g. after a reconnect).
+  for (const sensorId of Object.keys(charts)) requestHydration(sensorId);
 });
 
 client.on('disconnect', () => setConnStatus('disconnected'));
@@ -430,6 +488,15 @@ client.on('message', (topic, message) => {
 
   if (topic === `${TOPIC_PREFIX}/status`) {
     setConnStatus(data.status === 'online' ? 'connected' : 'rpi_offline');
+    return;
+  }
+
+  if (topic.startsWith(`${TOPIC_PREFIX}/history/resp/`)) {
+    const reqId    = topic.slice((`${TOPIC_PREFIX}/history/resp/`).length);
+    const sensorId = pendingHydrations[reqId];
+    if (!sensorId) return;
+    delete pendingHydrations[reqId];
+    if (Array.isArray(data.points)) applyHydration(sensorId, data.points);
     return;
   }
 

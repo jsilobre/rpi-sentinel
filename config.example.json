@@ -15,6 +15,14 @@
         "password": "YOUR_PUBLISHER_PASSWORD",
         "topic_prefix": "rpi"
     },
+    // Persistent reading history (SQLite). Survives daemon restarts and
+    // serves the dashboard hydration via MQTT history-on-demand.
+    "history": {
+        "enabled": true,
+        "db_path": "data/history.db",
+        "retention_days": 7,
+        "max_points_per_sensor": 50000
+    },
     // List of sensors to monitor
     "sensors": [
         {
