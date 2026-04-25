@@ -1,5 +1,6 @@
 add_library(sensors STATIC
     DS18B20Reader.cpp
+    DHT11Reader.cpp
     SimulatedSensor.cpp
 )
 

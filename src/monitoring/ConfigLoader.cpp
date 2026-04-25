@@ -20,6 +20,7 @@ static auto parse_sensor_config(const nlohmann::json& j) -> std::expected<Sensor
     std::string t = j["type"].get<std::string>();
     if      (t == "ds18b20")   sc.type = SensorType::DS18B20;
     else if (t == "simulated") sc.type = SensorType::Simulated;
+    else if (t == "dht11")     sc.type = SensorType::DHT11;
     else return std::unexpected(std::format("sensor '{}': unknown type '{}'", sc.id, t));
 
     if (j.contains("device_path"))    sc.device_path    = j["device_path"].get<std::string>();
@@ -94,7 +95,12 @@ auto load_config(const std::filesystem::path& path) -> std::expected<Config, std
 auto save_config(const std::filesystem::path& path, const Config& config) -> std::expected<void, std::string>
 {
     auto sensor_type_str = [](SensorType t) -> std::string {
-        return t == SensorType::DS18B20 ? "ds18b20" : "simulated";
+        switch (t) {
+            case SensorType::DS18B20:  return "ds18b20";
+            case SensorType::DHT11:    return "dht11";
+            case SensorType::Simulated: return "simulated";
+        }
+        return "simulated";
     };
 
     nlohmann::json j;
