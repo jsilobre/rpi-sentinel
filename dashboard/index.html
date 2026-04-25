@@ -173,9 +173,9 @@
 <script>
 // ── Configuration ──────────────────────────────────────────────────────────────
 // Replace with your HiveMQ Cloud cluster and subscriber (read-only) credentials.
-const BROKER_WSS   = '__MQTT_BROKER_WSS__';
-const MQTT_USER    = '__MQTT_USER__';
-const MQTT_PASS    = '__MQTT_PASS__';
+const BROKER_WSS   = 'wss://10f07141692c4f97886afd9b31dfa2d1.s1.eu.hivemq.cloud:8884/mqtt';
+const MQTT_USER    = 'jsilobre';
+const MQTT_PASS    = 'Frill1-List2-Exfoliate4-Wired1';
 const TOPIC_PREFIX = 'rpi';
 // ──────────────────────────────────────────────────────────────────────────────
 
@@ -186,6 +186,7 @@ const charts           = {};
 const history          = {};
 const events           = [];
 const sensorThresholds = {};
+const knownSensorIds   = new Set();
 
 const palette = [
   { border: '#0ea5e9', bg: 'rgba(14,165,233,0.10)' },
@@ -219,6 +220,7 @@ function cssVar(name) {
 }
 
 function ensureCard(sensorId, metric) {
+  if (knownSensorIds.size > 0 && !knownSensorIds.has(sensorId)) return;
   const sid = domId(sensorId);
   if (document.getElementById('card-' + sid)) return;
 
@@ -431,9 +433,36 @@ client.on('message', (topic, message) => {
   }
 
   if (topic === `${TOPIC_PREFIX}/config/current`) {
-    (data.sensors ?? []).forEach(s => {
+    const incoming = data.sensors ?? [];
+
+    knownSensorIds.clear();
+    incoming.forEach(s => {
+      knownSensorIds.add(s.id);
       sensorThresholds[s.id] = { warn: s.threshold_warn, crit: s.threshold_crit };
     });
+
+    for (const sensorId in charts) {
+      if (!knownSensorIds.has(sensorId)) {
+        charts[sensorId].destroy();
+        delete charts[sensorId];
+        delete history[sensorId];
+        const cardEl = document.getElementById('card-' + domId(sensorId));
+        if (cardEl) cardEl.remove();
+      }
+    }
+
+    const grid = document.getElementById('sensors-grid');
+    if (!grid.querySelector('.card')) {
+      const ph = document.createElement('div');
+      ph.id        = 'placeholder-card';
+      ph.className = 'card';
+      ph.innerHTML = '<p class="placeholder">Waiting for sensor data…</p>';
+      grid.appendChild(ph);
+    }
+
+    document.getElementById('sensor-count').textContent =
+      grid.querySelectorAll('.card:not(#placeholder-card)').length;
+
     renderConfigPanel();
     return;
   }
