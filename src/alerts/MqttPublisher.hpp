@@ -38,8 +38,10 @@ public:
     std::string build_history_response(const std::string& request_payload) const;
 
 private:
+    static void on_connect_cb(struct mosquitto*, void* userdata, int rc);
     static void on_message_cb(struct mosquitto*, void* userdata,
                                const struct mosquitto_message* msg);
+    void handle_connect(int rc);
     void handle_message(const struct mosquitto_message* msg);
     void handle_history_request(const std::string& payload);
     void publish(const std::string& topic, const std::string& payload, bool retain);
@@ -48,6 +50,7 @@ private:
     mosquitto*                    mosq_ = nullptr;
     ThresholdCallback             threshold_cb_;
     std::shared_ptr<HistoryStore> history_store_;
+    std::string                   status_topic_;
     std::string                   config_topic_current_;
     std::string                   config_topic_set_;
     std::string                   history_req_topic_;

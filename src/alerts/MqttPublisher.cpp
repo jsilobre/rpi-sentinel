@@ -66,6 +66,7 @@ MqttPublisher::MqttPublisher(const MqttConfig& config)
         mosquitto_username_pw_set(mosq_, config_.username.c_str(), config_.password.c_str());
     }
 
+    mosquitto_connect_callback_set(mosq_, &MqttPublisher::on_connect_cb);
     mosquitto_message_callback_set(mosq_, &MqttPublisher::on_message_cb);
 }
 
@@ -105,16 +106,14 @@ void MqttPublisher::connect()
             "MQTT connect to {}:{} failed: {}", addr.host, addr.port, mosquitto_strerror(rc)));
     }
 
+    status_topic_         = config_.topic_prefix + "/status";
     config_topic_current_ = config_.topic_prefix + "/config/current";
     config_topic_set_     = config_.topic_prefix + "/config/set";
     history_req_topic_    = config_.topic_prefix + "/history/req";
     history_resp_prefix_  = config_.topic_prefix + "/history/resp/";
 
     mosquitto_loop_start(mosq_);
-    mosquitto_subscribe(mosq_, nullptr, config_topic_set_.c_str(), /*qos=*/1);
-    mosquitto_subscribe(mosq_, nullptr, history_req_topic_.c_str(), /*qos=*/1);
-    publish(status_topic, R"({"status":"online"})", true);
-    std::println("[MqttPublisher] Connected to {}:{}", addr.host, addr.port);
+    std::println("[MqttPublisher] Connecting to {}:{}…", addr.host, addr.port);
 }
 
 void MqttPublisher::disconnect()
@@ -130,6 +129,23 @@ void MqttPublisher::disconnect()
         mosquitto_disconnect(mosq_);
         std::println("[MqttPublisher] Disconnected");
     }
+}
+
+void MqttPublisher::on_connect_cb(struct mosquitto*, void* userdata, int rc)
+{
+    if (userdata) static_cast<MqttPublisher*>(userdata)->handle_connect(rc);
+}
+
+void MqttPublisher::handle_connect(int rc)
+{
+    if (rc != 0) {
+        std::println(stderr, "[MqttPublisher] CONNACK error: {}", rc);
+        return;
+    }
+    mosquitto_subscribe(mosq_, nullptr, config_topic_set_.c_str(), /*qos=*/1);
+    mosquitto_subscribe(mosq_, nullptr, history_req_topic_.c_str(), /*qos=*/1);
+    publish(status_topic_, R"({"status":"online"})", /*retain=*/true);
+    std::println("[MqttPublisher] Connected and online");
 }
 
 void MqttPublisher::set_threshold_callback(ThresholdCallback cb)
