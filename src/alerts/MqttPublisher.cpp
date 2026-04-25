@@ -100,7 +100,9 @@ void MqttPublisher::connect()
         static_cast<int>(offline_payload.size()), offline_payload.c_str(),
         /*qos=*/1, /*retain=*/true);
 
-    int rc = mosquitto_connect(mosq_, addr.host.c_str(), addr.port, /*keepalive=*/60);
+    mosquitto_reconnect_delay_set(mosq_, /*delay=*/1, /*delay_max=*/30, /*exponential_backoff=*/true);
+
+    int rc = mosquitto_connect(mosq_, addr.host.c_str(), addr.port, /*keepalive=*/30);
     if (rc != MOSQ_ERR_SUCCESS) {
         throw std::runtime_error(std::format(
             "MQTT connect to {}:{} failed: {}", addr.host, addr.port, mosquitto_strerror(rc)));

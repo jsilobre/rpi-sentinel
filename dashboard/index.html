@@ -472,7 +472,9 @@ client.on('connect', () => {
 client.on('disconnect', () => setConnStatus('disconnected'));
 client.on('offline',    () => setConnStatus('disconnected'));
 client.on('error',      () => setConnStatus('error'));
-client.on('reconnect',  () => setConnStatus('Connecting'));
+// On reconnect keep the last known RPi state — avoid flashing offline
+// during a transient broker disconnect that resolves in seconds.
+client.on('reconnect',  () => { if (document.getElementById('conn-label').textContent !== 'RPi online') setConnStatus('Connecting'); });
 
 client.on('connect', () => {
   setTimeout(() => {
