@@ -34,12 +34,12 @@ cmake --build build --parallel
 # Run all tests
 ctest --test-dir build --output-on-failure --parallel 4
 
-# Run a single test by filter (all tests share one binary: build/tests/rpi_tests)
-./build/tests/rpi_tests --gtest_filter="EventBus*"
-./build/tests/rpi_tests --gtest_filter="ThresholdMonitor*"
+# Run a single test by filter (all tests share one binary: build/rpi_tests)
+./build/rpi_tests --gtest_filter="EventBus*"
+./build/rpi_tests --gtest_filter="ThresholdMonitor*"
 
 # Run the daemon (requires config.json in working dir, or pass path as arg)
-./build/src/rpi-sentinel [path/to/config.json]
+./build/rpi-sentinel [path/to/config.json]
 
 # Set up LSP (clangd)
 ln -s build/compile_commands.json compile_commands.json
