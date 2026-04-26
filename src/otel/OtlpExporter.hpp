@@ -6,6 +6,7 @@
 #include "../monitoring/Config.hpp"
 
 #include <memory>
+#include <span>
 
 namespace rpi {
 
@@ -13,15 +14,18 @@ namespace rpi {
 // and threshold breach/recovery events as OTLP logs to a remote
 // collector (Grafana Cloud OTLP gateway in production).
 //
-// Construction initializes the global OpenTelemetry MeterProvider and
-// LoggerProvider; destruction flushes and shuts them down. Construction
-// throws if the auth header cannot be resolved (env var unset and no
-// literal in config) or if the endpoint is empty.
+// `sensors` is captured at construction so that per-sensor warn/crit
+// thresholds can be exposed as observable gauges (`sensor.threshold.warn`,
+// `sensor.threshold.crit`). They render as overlay lines on dashboards
+// without the dashboard having to know the sensor list. Thresholds are
+// considered static for the daemon's lifetime.
 //
-// on_event() is non-blocking: the SDK enqueues to its background processor.
+// Construction throws if the auth header cannot be resolved or if the
+// endpoint is empty. on_event() is non-blocking: the SDK enqueues to its
+// background processor.
 class OtlpExporter : public IAlertHandler {
 public:
-    explicit OtlpExporter(const OtlpConfig& cfg);
+    OtlpExporter(const OtlpConfig& cfg, std::span<const SensorConfig> sensors);
     ~OtlpExporter() override;
 
     OtlpExporter(const OtlpExporter&)            = delete;

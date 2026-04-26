@@ -97,12 +97,27 @@ struct ReadingTable {
     }
 };
 
+// Static thresholds per (sensor_id, metric). Captured at construction;
+// sampled by the SDK from observable gauge callbacks.
+struct ThresholdTable {
+    struct Entry {
+        std::string sensor_id;
+        std::string metric;
+        double      warn;
+        double      crit;
+    };
+    std::vector<Entry> entries;
+};
+
 struct OtlpExporter::Impl {
-    OtlpConfig                                                  cfg;
-    ReadingTable                                                readings;
-    opentelemetry::nostd::shared_ptr<otlp_api::Meter>           meter;
+    OtlpConfig                                                       cfg;
+    ReadingTable                                                     readings;
+    ThresholdTable                                                   thresholds;
+    opentelemetry::nostd::shared_ptr<otlp_api::Meter>                meter;
     opentelemetry::nostd::shared_ptr<otlp_api::ObservableInstrument> sensor_reading;
-    opentelemetry::nostd::shared_ptr<otlp_log::Logger>          logger;
+    opentelemetry::nostd::shared_ptr<otlp_api::ObservableInstrument> threshold_warn;
+    opentelemetry::nostd::shared_ptr<otlp_api::ObservableInstrument> threshold_crit;
+    opentelemetry::nostd::shared_ptr<otlp_log::Logger>               logger;
 
     void emit_threshold_log(const SensorEvent& ev, otlp_log::Severity severity, const char* event_type)
     {
@@ -136,12 +151,38 @@ void observe_readings(otlp_api::ObserverResult result, void* state)
     });
 }
 
+template <bool Crit>
+void observe_thresholds(otlp_api::ObserverResult result, void* state)
+{
+    auto* table = static_cast<ThresholdTable*>(state);
+    if (!table) return;
+
+    auto observer = opentelemetry::nostd::get<
+        opentelemetry::nostd::shared_ptr<otlp_api::ObserverResultT<double>>>(result);
+    if (!observer) return;
+
+    for (const auto& e : table->entries) {
+        observer->Observe(Crit ? e.crit : e.warn,
+                          {{"sensor_id", e.sensor_id}, {"metric", e.metric}});
+    }
+}
+
 } // anonymous namespace
 
-OtlpExporter::OtlpExporter(const OtlpConfig& cfg)
+OtlpExporter::OtlpExporter(const OtlpConfig& cfg, std::span<const SensorConfig> sensors)
     : impl_{std::make_unique<Impl>()}
 {
     impl_->cfg = cfg;
+
+    impl_->thresholds.entries.reserve(sensors.size());
+    for (const auto& s : sensors) {
+        impl_->thresholds.entries.push_back({
+            .sensor_id = s.id,
+            .metric    = s.metric,
+            .warn      = static_cast<double>(s.threshold_warn),
+            .crit      = static_cast<double>(s.threshold_crit),
+        });
+    }
 
     if (cfg.endpoint.empty())
         throw std::runtime_error{"OtlpExporter: empty endpoint"};
@@ -178,9 +219,18 @@ OtlpExporter::OtlpExporter(const OtlpConfig& cfg)
         otlp_api::Provider::SetMeterProvider(api_provider);
 
         impl_->meter = api_provider->GetMeter("rpi-sentinel", "1.0");
+
         impl_->sensor_reading = impl_->meter->CreateDoubleObservableGauge(
             "sensor.reading", "Latest sensor reading", "");
         impl_->sensor_reading->AddCallback(&observe_readings, &impl_->readings);
+
+        impl_->threshold_warn = impl_->meter->CreateDoubleObservableGauge(
+            "sensor.threshold.warn", "Configured warn threshold for the sensor", "");
+        impl_->threshold_warn->AddCallback(&observe_thresholds<false>, &impl_->thresholds);
+
+        impl_->threshold_crit = impl_->meter->CreateDoubleObservableGauge(
+            "sensor.threshold.crit", "Configured critical threshold for the sensor", "");
+        impl_->threshold_crit->AddCallback(&observe_thresholds<true>, &impl_->thresholds);
     }
 
     {
@@ -209,9 +259,13 @@ OtlpExporter::OtlpExporter(const OtlpConfig& cfg)
 
 OtlpExporter::~OtlpExporter()
 {
-    if (impl_->sensor_reading) {
+    if (impl_->sensor_reading)
         impl_->sensor_reading->RemoveCallback(&observe_readings, &impl_->readings);
-    }
+    if (impl_->threshold_warn)
+        impl_->threshold_warn->RemoveCallback(&observe_thresholds<false>, &impl_->thresholds);
+    if (impl_->threshold_crit)
+        impl_->threshold_crit->RemoveCallback(&observe_thresholds<true>, &impl_->thresholds);
+
     otlp_api::Provider::SetMeterProvider(
         opentelemetry::nostd::shared_ptr<otlp_api::MeterProvider>{});
     otlp_log::Provider::SetLoggerProvider(

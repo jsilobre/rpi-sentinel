@@ -99,7 +99,7 @@ int main(int argc, char* argv[])
     std::shared_ptr<rpi::OtlpExporter> otlp_exporter;
     if (result->otlp.enabled) {
         try {
-            otlp_exporter = std::make_shared<rpi::OtlpExporter>(result->otlp);
+            otlp_exporter = std::make_shared<rpi::OtlpExporter>(result->otlp, result->sensors);
             bus.register_handler(otlp_exporter);
         } catch (const std::exception& e) {
             std::println(stderr, "[main] OTLP exporter init failed: {}", e.what());

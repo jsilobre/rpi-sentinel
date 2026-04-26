@@ -8,8 +8,11 @@
 
 #include "../src/otel/OtlpExporter.hpp"
 #include "../src/events/SensorEvent.hpp"
+#include "../src/monitoring/Config.hpp"
 
 #include <cstdlib>
+#include <span>
+#include <vector>
 
 namespace {
 
@@ -31,7 +34,7 @@ TEST(OtlpExporter, RejectsEmptyEndpoint)
 {
     auto cfg = make_cfg();
     cfg.endpoint.clear();
-    EXPECT_THROW(rpi::OtlpExporter{cfg}, std::runtime_error);
+    EXPECT_THROW((rpi::OtlpExporter{cfg, std::span<const rpi::SensorConfig>{}}), std::runtime_error);
 }
 
 TEST(OtlpExporter, RejectsMissingAuth)
@@ -40,13 +43,20 @@ TEST(OtlpExporter, RejectsMissingAuth)
     cfg.auth_header.clear();
     // Make sure the env fallback fails too.
     ::unsetenv(cfg.auth_header_env.c_str());
-    EXPECT_THROW(rpi::OtlpExporter{cfg}, std::runtime_error);
+    EXPECT_THROW((rpi::OtlpExporter{cfg, std::span<const rpi::SensorConfig>{}}), std::runtime_error);
 }
 
 TEST(OtlpExporter, ConstructsAndAcceptsAllEventTypes)
 {
     auto cfg = make_cfg();
-    rpi::OtlpExporter exporter{cfg};
+    std::vector<rpi::SensorConfig> sensors;
+    rpi::SensorConfig s;
+    s.id             = "temp1";
+    s.metric         = "temperature";
+    s.threshold_warn = 30.0f;
+    s.threshold_crit = 40.0f;
+    sensors.push_back(std::move(s));
+    rpi::OtlpExporter exporter{cfg, sensors};
 
     rpi::SensorEvent reading{
         .type      = rpi::SensorEvent::Type::Reading,
@@ -82,7 +92,7 @@ TEST(OtlpExporter, ResolvesAuthHeaderFromEnv)
     cfg.auth_header_env = "RPI_TEST_OTLP_AUTH_FROM_ENV";
     ::setenv(cfg.auth_header_env.c_str(), "Basic ZW52OnZhbHVl", 1);
 
-    EXPECT_NO_THROW(rpi::OtlpExporter{cfg});
+    EXPECT_NO_THROW((rpi::OtlpExporter{cfg, std::span<const rpi::SensorConfig>{}}));
 
     ::unsetenv(cfg.auth_header_env.c_str());
 }
