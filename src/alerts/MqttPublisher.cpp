@@ -59,7 +59,8 @@ MqttPublisher::MqttPublisher(const MqttConfig& config)
     : config_(config)
 {
     mosquitto_lib_init();
-    mosq_ = mosquitto_new(nullptr, /*clean_session=*/true, /*userdata=*/this);
+    const std::string client_id = config_.topic_prefix + "-sentinel";
+    mosq_ = mosquitto_new(client_id.c_str(), /*clean_session=*/true, /*userdata=*/this);
     if (!mosq_) throw std::runtime_error("Failed to create mosquitto instance");
 
     if (!config_.username.empty()) {
@@ -123,12 +124,13 @@ void MqttPublisher::disconnect()
     if (mosq_) {
         const std::string topic   = config_.topic_prefix + "/status";
         const std::string payload = R"({"status":"offline"})";
-        // QoS 1 + retain — let the loop flush the PUBACK before we disconnect
+        // QoS 1 + retain — give the loop time to send and receive PUBACK
         mosquitto_publish(mosq_, nullptr, topic.c_str(),
             static_cast<int>(payload.size()), payload.c_str(), /*qos=*/1, /*retain=*/true);
         std::this_thread::sleep_for(std::chrono::milliseconds{500});
-        mosquitto_disconnect(mosq_);                 // send MQTT DISCONNECT (loop thread will exit)
-        mosquitto_loop_stop(mosq_, /*force=*/false); // join loop thread cleanly
+        mosquitto_disconnect(mosq_);                // send MQTT DISCONNECT packet
+        std::this_thread::sleep_for(std::chrono::milliseconds{200}); // let loop flush it
+        mosquitto_loop_stop(mosq_, /*force=*/true); // safe to force-stop now
         std::println("[MqttPublisher] Disconnected");
     }
 }
@@ -146,6 +148,7 @@ void MqttPublisher::handle_connect(int rc)
     }
     mosquitto_subscribe(mosq_, nullptr, config_topic_set_.c_str(), /*qos=*/1);
     mosquitto_subscribe(mosq_, nullptr, history_req_topic_.c_str(), /*qos=*/1);
+    mosquitto_subscribe(mosq_, nullptr, status_topic_.c_str(), /*qos=*/1);
     publish(status_topic_, R"({"status":"online"})", /*retain=*/true);
     std::println("[MqttPublisher] Connected and online");
 }
@@ -181,6 +184,12 @@ void MqttPublisher::handle_message(const struct mosquitto_message* msg)
 
     if (topic == history_req_topic_) {
         handle_history_request(payload);
+        return;
+    }
+
+    // Self-heal: if another process's LWT overwrites our retained status, restore it.
+    if (topic == status_topic_ && payload.find("offline") != std::string::npos) {
+        publish(status_topic_, R"({"status":"online"})", /*retain=*/true);
         return;
     }
 
