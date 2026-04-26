@@ -1,5 +1,7 @@
 #include "ThresholdMonitor.hpp"
 
+#include <condition_variable>
+#include <mutex>
 #include <print>
 
 namespace rpi {
@@ -38,6 +40,9 @@ void ThresholdMonitor::update_thresholds(float warn, float crit)
 
 void ThresholdMonitor::run(std::stop_token stop)
 {
+    std::condition_variable_any cv;
+    std::mutex sleep_mtx;
+
     while (!stop.stop_requested()) {
         auto result = sensor_.read();
 
@@ -99,7 +104,8 @@ void ThresholdMonitor::run(std::stop_token stop)
             }
         }
 
-        std::this_thread::sleep_for(config_.poll_interval);
+        std::unique_lock lock(sleep_mtx);
+        cv.wait_for(lock, stop, config_.poll_interval, [] { return false; });
     }
 }
 

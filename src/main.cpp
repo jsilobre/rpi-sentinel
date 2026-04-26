@@ -137,10 +137,10 @@ int main(int argc, char* argv[])
     }
 
     std::println("[main] Shutting down...");
-    hub.stop();
 #ifdef ENABLE_MQTT
     if (mqtt_pub) mqtt_pub->disconnect();
 #endif
+    hub.stop();
     if (http_server) http_server->stop();
     return 0;
 }
