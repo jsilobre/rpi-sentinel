@@ -24,20 +24,18 @@ What we keep:
   PromQL alone, already covered by tests, and lets the daemon make alerting
   decisions independently of network availability.
 - `HistoryStore` SQLite — local source of truth and offline buffer.
-- `MqttPublisher` for live publish (third-party consumers like Home Assistant)
-  — but the *history-on-demand* protocol is removed.
 
 What we remove:
 
 - `src/web/` (HTTP server, `WebState`, `WebAlert`).
 - `dashboard/` (Chart.js page + assets).
 - `.github/workflows/deploy-dashboard.yml` (Pages deploy + secret injection).
-- `MqttPublisher::handle_history_request` and the history hydration callback
-  on `HistoryStore`.
+- `src/alerts/MqttPublisher.{hpp,cpp}` — entire MQTT publisher.
+- `MqttConfig` block in `Config.hpp` and `config.example.json`.
+- `libmosquitto` dependency and the `ENABLE_MQTT` build option.
 - `web_enabled` / `web_port` config fields, `/api/state`, `/api/config`,
-  and the runtime threshold POST endpoint (will be reintroduced via Grafana
-  alert rules; runtime threshold edits remain available via MQTT
-  `publish_config` if needed).
+  and the runtime threshold POST endpoint. Runtime threshold edits are
+  dropped: edit `config.json` and restart the daemon (sub-second on a Pi).
 
 ## 2. Target architecture
 
@@ -82,12 +80,12 @@ What we remove:
                           │  - Contact points   │
                           └──────────┬──────────┘
                                      ▼
-                              email / Slack / etc.
+                                   email
 ```
 
-`MqttPublisher` (kept, not shown) continues to publish live readings on
-`rpi/<sensor_id>/...` for third-party consumers; the history-on-demand
-request/response is removed.
+No MQTT in the target architecture: `MqttPublisher` and `libmosquitto`
+are removed. All external consumers of sensor data (live readings,
+threshold events, history) go through Grafana Cloud.
 
 ## 3. Signal mapping
 
@@ -222,26 +220,30 @@ build time from ~15 min to ~3 min on a Pi.
 | `src/web/` (entire directory)                          | Replaced by Grafana                   |
 | `dashboard/`                                           | Replaced by Grafana public dashboard  |
 | `.github/workflows/deploy-dashboard.yml`               | No more Pages deploy                  |
-| `MqttPublisher::handle_history_request`                | Replaced by Mimir/Loki queries        |
-| `MqttPublisher::set_history_store`                     | Same                                  |
-| `HistoryStore::recent` MQTT path                       | Internal callers only                 |
+| `src/alerts/MqttPublisher.{hpp,cpp}`                   | All consumers now go through Grafana  |
+| `Config::mqtt`, `MqttConfig`                           | MQTT block removed                    |
+| `ENABLE_MQTT` build option, `libmosquitto` dep         | No more MQTT support                  |
 | `Config::web_enabled`, `Config::web_port`              | Web layer gone                        |
-| `/api/state`, `/api/config`, runtime threshold POST    | Tied to web layer                     |
-| Chart.js / cpp-httplib FetchContent                    | No more web server                    |
+| `/api/state`, `/api/config`, runtime threshold POST    | Tied to web layer; restart instead    |
+| `cpp-httplib` FetchContent                             | No more web server                    |
 
-The `cpp-httplib` dependency in `cmake/Dependencies.cmake` is removed.
+The `cpp-httplib` and `libmosquitto` dependencies in
+`cmake/Dependencies.cmake` are removed; `pkg-config` is no longer needed
+unless we add other pkg-config-based deps (review at implementation time).
 
 ### 4.6 Kept (no changes)
 
 - `EventBus`, `ThresholdMonitor`, all sensors.
 - `HistoryStore` and `SqliteHistoryHandler`.
 - `LogAlert`.
-- `MqttPublisher` for live publish.
-- `nlohmann_json` (still used by `ConfigLoader`, `MqttPublisher`).
+- `nlohmann_json` (still used by `ConfigLoader`).
 
 ## 5. Grafana Cloud setup (one-shot, manual)
 
-1. Create account at `grafana.com`, pick the EU region.
+1. Create account at `grafana.com`, **EU region** (data residency: EU).
+   The OTLP endpoint will be of the form
+   `https://otlp-gateway-prod-eu-west-2.grafana.net/otlp` (the exact
+   sub-region depends on the stack assignment shown in the UI).
 2. In *Connections → Add new connection → OpenTelemetry (OTLP)*, copy:
    - Endpoint URL.
    - Instance ID.
@@ -268,7 +270,9 @@ The `cpp-httplib` dependency in `cmake/Dependencies.cmake` is removed.
    - **Silent sensor (Mimir):**
      `absent_over_time(sensor_reading[2m])` per `sensor_id`
      — detects daemon crash or sensor failure.
-6. Configure contact points: email (default), optionally Slack/Discord webhook.
+6. Configure a single **email contact point** for v1. Slack/Discord/webhook
+   integrations are deferred — adding them later is a UI-only change with no
+   impact on the daemon.
 7. Enable *Public Dashboards* on the main dashboard, copy the public URL.
 8. Update `README.md` with the public dashboard URL and a screenshot.
 
@@ -280,8 +284,9 @@ each step.
 ### Phase 1 — Add OTLP export (additive, no removal)
 
 - Add OpenTelemetry C++ SDK dependency and CMake wiring.
-- Implement `OtlpExporter` and unit tests with a mock OTLP HTTP server
-  (cpp-httplib in tests, or a stubbed exporter).
+- Implement `OtlpExporter` and unit tests using the SDK's in-memory
+  `MetricExporter` / `LogRecordExporter` test doubles (no live HTTP server
+  needed in unit tests).
 - Add config block, wire in `main.cpp`, default `enabled: false`.
 - Validate locally against an OTel Collector in Docker (`otel/opentelemetry-collector-contrib`).
 - CI: build only (no cloud calls in CI).
@@ -292,40 +297,40 @@ SQLite history all still work unchanged.
 
 ### Phase 2 — Connect to Grafana Cloud
 
-- Manual Grafana Cloud setup (section 5).
+- Manual Grafana Cloud setup (section 5), EU region.
 - Update Pi's `config.json` and systemd unit to enable OTLP.
 - Build dashboards and alert rules in Grafana UI.
 - Run the daemon for ~48 h alongside the existing web dashboard, compare
-  values, validate alerting cadence and notification delivery.
+  values, validate alerting cadence and email delivery.
 
 **Exit criteria:** public dashboard URL accessible, threshold breach
 alerts arrive via email within 1–2 min of the daemon dispatching the event.
 
-### Phase 3 — Decommission custom web stack
+### Phase 3 — Decommission custom web + MQTT stack
+
+Single destructive phase since we are working on a feature branch and have
+no production deployments depending on the legacy stack.
 
 - Remove `src/web/`, `dashboard/`, `.github/workflows/deploy-dashboard.yml`,
   `cpp-httplib` dep.
-- Remove history-on-demand from `MqttPublisher` and the
-  `set_history_store` plumbing.
-- Remove `web_enabled`/`web_port` config; remove primer of `WebState` from
-  `main.cpp`.
+- Remove `src/alerts/MqttPublisher.{hpp,cpp}`, `MqttConfig`, the
+  `ENABLE_MQTT` build option and `libmosquitto` dep.
+- Remove `web_enabled` / `web_port` / `mqtt` config blocks; clean
+  `config.example.json`.
+- Remove primer of `WebState` from `main.cpp`; simplify the file to:
+  config → bus + handlers (Log, Sqlite, Otlp) → hub → wait → shutdown.
 - Update `docs/architecture.md`, `docs/persistence.md`, `docs/workflow.md`,
-  `README.md`.
+  `docs/build-guide.md`, `README.md`, `CLAUDE.md`.
 - New `docs/observability.md` covering OTLP setup, Grafana dashboard layout,
   alert rules, and how to add new alerts.
 
 **Exit criteria:** build green, all tests green, daemon binary noticeably
-smaller, no references to `WebState`/`HttpServer` left.
+smaller, no references to `WebState`, `HttpServer`, `MqttPublisher`,
+`mosquitto`, or `httplib` left in the source tree.
 
-### Phase 4 — Optional cleanup (separate decision)
-
-- Decide whether MQTT live-publish is still useful. Drop `MqttPublisher`
-  entirely if no external consumer remains.
-- Decide whether `HistoryStore` SQLite still earns its keep. Recommendation:
-  keep it. It is the only mechanism that survives an Internet outage and
-  it adds <1 % CPU overhead.
-
-Phase 4 is **out of scope** for this plan unless explicitly requested.
+`HistoryStore` SQLite is kept: it is the only data path that survives an
+Internet outage, adds <1 % CPU overhead, and its removal would be a
+separate decision driven by retention policy, not by this migration.
 
 ## 7. Testing strategy
 
@@ -366,7 +371,7 @@ Phase 4 is **out of scope** for this plan unless explicitly requested.
 - Systemd unit gets an `EnvironmentFile=/etc/rpi-sentinel.env` (mode 0600,
   owned by the daemon user). Documented in the Pi setup guide.
 
-## 9. Risks and open questions
+## 9. Risks
 
 | Risk                                                  | Mitigation                                                                                            |
 |-------------------------------------------------------|-------------------------------------------------------------------------------------------------------|
@@ -376,28 +381,27 @@ Phase 4 is **out of scope** for this plan unless explicitly requested.
 | Public dashboard feature limitations                  | Confirmed sufficient for our panels (no template variables needed; current dashboard is one fixed view per sensor type). Revisit if we add per-sensor drill-down. |
 | Token leak                                            | Env-var only in production. Document rotation procedure: regenerate in Grafana UI, redeploy systemd env file. |
 | Schema change for Loki labels                         | Lock label set early (`service_name`, `service_instance_id`, `sensor_id`, `metric`, `event_type`, `severity`). Adding new ones is cheap; renaming forces a query rewrite. |
-| Loss of runtime threshold edit (`POST /api/config`)   | MQTT topic `rpi/config/set` already supports threshold updates via `MqttPublisher::set_threshold_callback`. Keep that path; Grafana never edits daemon config. |
+| Loss of runtime threshold edit (`POST /api/config`)   | Accepted: edit `config.json` and restart the daemon (sub-second on a Pi). Document this in `README.md`. |
 
-Open questions to resolve before Phase 1:
+## 9.1 Decisions locked
 
-1. Is MQTT live-publish actually consumed today? If not, we could collapse
-   Phase 4 into Phase 3 and remove all MQTT code in one pass.
-2. Region preference for Grafana Cloud (EU/US) — affects the OTLP endpoint URL
-   and data residency.
-3. Notification channel preference: email only for v1, or also Slack/Discord
-   from the start?
+- **Region:** Grafana Cloud EU.
+- **MQTT:** removed entirely (no live-publish kept).
+- **Notifications v1:** email contact point only.
+- **Runtime threshold edits:** removed; config-edit + restart instead.
+- **`HistoryStore`:** kept as local source of truth and offline buffer.
 
 ## 10. Documentation updates (Phase 3)
 
 | File                                  | Change                                                                |
 |---------------------------------------|-----------------------------------------------------------------------|
-| `docs/architecture.md`                | Replace web layer description with OTel exporter; new component table |
-| `docs/persistence.md`                 | Remove MQTT history-on-demand section; note SQLite remains local-only |
-| `docs/workflow.md`                    | Update per-cycle diagram: drop dispatch to `WebAlert`, add OTLP path  |
-| `docs/build-guide.md`                 | New OpenTelemetry SDK install instructions; remove cpp-httplib note   |
+| `docs/architecture.md`                | Replace web + MQTT layer description with OTel exporter; new component table |
+| `docs/persistence.md`                 | Remove all MQTT/history-on-demand content; SQLite is now local-only   |
+| `docs/workflow.md`                    | Update per-cycle diagram: drop `WebAlert` and `MqttPublisher`, add OTLP path |
+| `docs/build-guide.md`                 | OpenTelemetry SDK install; remove `cpp-httplib`, `libmosquitto`, `ENABLE_MQTT` |
 | `docs/observability.md` (new)         | OTLP setup, dashboard layout, alert rules, smoke checklist            |
-| `README.md`                           | Public dashboard URL + screenshot, drop GitHub Pages section          |
-| `CLAUDE.md`                           | Update web/MQTT sections to reflect new architecture                  |
+| `README.md`                           | Public Grafana dashboard URL + screenshot; drop GitHub Pages and MQTT sections; document config-edit-and-restart for threshold changes |
+| `CLAUDE.md`                           | Rewrite web + MQTT sections; update build prerequisites               |
 
 ## 11. Effort estimate
 
