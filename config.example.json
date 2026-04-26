@@ -23,6 +23,16 @@
         "retention_days": 7,
         "max_points_per_sensor": 50000
     },
+    // OTLP export to Grafana Cloud (Mimir for metrics, Loki for threshold logs).
+    // The Basic auth header is read from the env var named in 'auth_header_env'
+    // (preferred); falls back to literal 'auth_header' for development only.
+    "otlp": {
+        "enabled": false,
+        "endpoint": "https://otlp-gateway-prod-eu-west-2.grafana.net/otlp",
+        "auth_header_env": "GRAFANA_CLOUD_OTLP_AUTH",
+        "service_instance_id": "rpi-sentinel-1",
+        "export_interval_ms": 5000
+    },
     // List of sensors to monitor
     "sensors": [
         {

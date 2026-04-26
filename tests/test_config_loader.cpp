@@ -136,3 +136,57 @@ TEST(ConfigLoader, ErrorOnEmptySensors)
     auto result = rpi::load_config(path);
     EXPECT_FALSE(result.has_value());
 }
+
+TEST(ConfigLoader, OtlpDefaultsWhenAbsent)
+{
+    auto path = write_tmp(R"({
+        "sensors": [{"id": "s0", "type": "simulated", "threshold_warn": 50.0, "threshold_crit": 80.0}]
+    })");
+    auto result = rpi::load_config(path);
+    ASSERT_TRUE(result.has_value()) << result.error();
+    EXPECT_FALSE(result->otlp.enabled);
+    EXPECT_TRUE(result->otlp.endpoint.empty());
+    EXPECT_EQ(result->otlp.export_interval_ms, 5000);
+    EXPECT_EQ(result->otlp.auth_header_env, "GRAFANA_CLOUD_OTLP_AUTH");
+}
+
+TEST(ConfigLoader, OtlpFullBlockParsed)
+{
+    auto path = write_tmp(R"({
+        "sensors": [{"id": "s0", "type": "simulated", "threshold_warn": 50.0, "threshold_crit": 80.0}],
+        "otlp": {
+            "enabled": true,
+            "endpoint": "https://otlp-gateway-prod-eu-west-2.grafana.net/otlp",
+            "auth_header_env": "MY_TOKEN_VAR",
+            "service_instance_id": "rpi-test-1",
+            "export_interval_ms": 10000
+        }
+    })");
+    auto result = rpi::load_config(path);
+    ASSERT_TRUE(result.has_value()) << result.error();
+    EXPECT_TRUE(result->otlp.enabled);
+    EXPECT_EQ(result->otlp.endpoint, "https://otlp-gateway-prod-eu-west-2.grafana.net/otlp");
+    EXPECT_EQ(result->otlp.auth_header_env, "MY_TOKEN_VAR");
+    EXPECT_EQ(result->otlp.service_instance_id, "rpi-test-1");
+    EXPECT_EQ(result->otlp.export_interval_ms, 10000);
+}
+
+TEST(ConfigLoader, OtlpEnabledRequiresEndpoint)
+{
+    auto path = write_tmp(R"({
+        "sensors": [{"id": "s0", "type": "simulated", "threshold_warn": 50.0, "threshold_crit": 80.0}],
+        "otlp": {"enabled": true}
+    })");
+    auto result = rpi::load_config(path);
+    EXPECT_FALSE(result.has_value());
+}
+
+TEST(ConfigLoader, OtlpRejectsNonPositiveExportInterval)
+{
+    auto path = write_tmp(R"({
+        "sensors": [{"id": "s0", "type": "simulated", "threshold_warn": 50.0, "threshold_crit": 80.0}],
+        "otlp": {"export_interval_ms": 0}
+    })");
+    auto result = rpi::load_config(path);
+    EXPECT_FALSE(result.has_value());
+}
