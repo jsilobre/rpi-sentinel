@@ -1,6 +1,12 @@
 # Migration Plan: Grafana Cloud + OpenTelemetry
 
-Status: **proposed** — pending review.
+## Current status
+
+| Phase | Status | Notes |
+|---|---|---|
+| 1. OTLP export (additive) | **Done** | `src/otel/OtlpExporter`, gated behind `ENABLE_OTLP=ON` (default OFF), 4 unit tests, 33/33 green with OTLP, 29/29 without. Dashboard JSON shipped. Commits `f0fdda9`, `dedc8dd`. |
+| 2. Connect to Grafana Cloud | **In progress** | Account created (EU), token validated against `otlp-gateway-prod-eu-west-2` (HTTP 200 round-trip). Pi build pending; dashboard to import once metrics flow. Procedure in `docs/observability.md`. |
+| 3. Decommission web + MQTT  | **Not started** | Deferred until Phase 2 fully validated in production. |
 
 ## 1. Context and goals
 
@@ -89,17 +95,24 @@ threshold events, history) go through Grafana Cloud.
 
 ## 3. Signal mapping
 
-| EventBus event           | OTel signal | Destination | Shape                                                                  |
+| EventBus event / source  | OTel signal | Destination | Shape                                                                  |
 |--------------------------|-------------|-------------|------------------------------------------------------------------------|
-| `Reading`                | Metric (gauge) | Mimir    | `sensor.reading` with attributes `sensor_id`, `metric`                 |
-| `ThresholdExceeded`      | Log (warning/error) | Loki | Body `"threshold exceeded"`, attributes `sensor_id`, `metric`, `value`, `threshold`, `severity=warning\|critical` |
-| `ThresholdRecovered`     | Log (info)  | Loki        | Body `"threshold recovered"`, same attributes                          |
+| `Reading`                | Observable Gauge | Mimir | `sensor.reading` with attributes `sensor_id`, `metric` (sampled from a thread-safe map of latest values) |
+| `cfg.sensors[].threshold_warn` (static) | Observable Gauge | Mimir | `sensor.threshold.warn` with `sensor_id`, `metric` — overlays on the dashboard as a dashed warn line |
+| `cfg.sensors[].threshold_crit` (static) | Observable Gauge | Mimir | `sensor.threshold.crit` with `sensor_id`, `metric` — overlays as a dashed crit line |
+| `ThresholdExceeded`      | Log (warning) | Loki      | Body `"threshold_exceeded"`, attributes `sensor_id`, `metric`, `value`, `threshold`, `event_type`, `severity` |
+| `ThresholdRecovered`     | Log (info)  | Loki        | Body `"threshold_recovered"`, same attribute set |
+
+The two `sensor.threshold.*` gauges allow the dashboard to render warn/crit
+overlay lines per sensor **without** the dashboard knowing the sensor list.
+This keeps the dashboard fully generic — see §5.
 
 Resource attributes set once at startup: `service.name=rpi-sentinel`,
-`service.instance.id=<config>`, `service.version=<git describe>`,
-`host.name=<gethostname>`.
+`service.instance.id` (from config), `host.name` (from `gethostname`).
 
-Severity is derived from whether the value crosses warn or crit thresholds.
+`ABI v1` of opentelemetry-cpp is used throughout (the synchronous `Gauge`
+instrument is gated behind ABI v2 / experimental, so we use
+`ObservableGauge` with callbacks instead).
 
 ## 4. Components
 
@@ -117,31 +130,41 @@ src/otel/
 ```cpp
 class OtlpExporter : public IAlertHandler {
 public:
-    explicit OtlpExporter(const OtlpConfig& cfg);
+    OtlpExporter(const OtlpConfig& cfg, std::span<const SensorConfig> sensors);
     ~OtlpExporter() override;
     void on_event(const SensorEvent& event) override;
 private:
-    // owns the OTel MeterProvider and LoggerProvider
-    // holds one Meter and one Logger instance
-    // maps SensorEvent::Type to gauge update or log record
+    struct Impl;
+    std::unique_ptr<Impl> impl_;  // owns Meter/Logger handles, gauges, latest-value table
 };
 ```
 
+`sensors` is captured at construction so per-sensor warn/crit thresholds
+can be exposed as observable gauges. They are static for the daemon's
+lifetime (runtime threshold edits are not supported — see §9.1).
+
 Initialization in the constructor:
 
-1. Build OTLP HTTP exporter pointing at `cfg.endpoint` with header
-   `Authorization: Basic <base64(instance_id:token)>`.
-2. Wrap in a `PeriodicExportingMetricReader` (5 s interval) and a
-   `BatchLogRecordProcessor`.
-3. Set them as the global `MeterProvider` / `LoggerProvider`.
-4. Cache `Meter` and `Logger` handles + the gauge instrument
-   (`sensor.reading`).
+1. Resolve auth header from env (`auth_header_env`) → fallback `auth_header`.
+   Throws if both are empty.
+2. Build OTLP HTTP exporters (metrics + logs), HTTP/Protobuf,
+   `Authorization: Basic <base64(instance_id:token)>` header, separate URLs
+   `<endpoint>/v1/metrics` and `<endpoint>/v1/logs`.
+3. Wrap in `PeriodicExportingMetricReader` (configurable interval, default
+   5 s) and `BatchLogRecordProcessor` (2 s schedule delay).
+4. Install global `MeterProvider` / `LoggerProvider`.
+5. Create three observable gauges (`sensor.reading`,
+   `sensor.threshold.warn`, `sensor.threshold.crit`) and register their
+   callbacks against an internal thread-safe table (readings) and the
+   captured sensor list (thresholds).
 
-Shutdown (destructor): call `Shutdown()` on both providers, with a 5 s timeout,
-to flush in-memory buffers.
+Shutdown (destructor): remove gauge callbacks, then reset the global
+providers — destruction triggers flush + drain on the SDK's batch
+processors.
 
-`on_event()` is non-blocking: the SDK enqueues to its background processor.
-This preserves the EventBus contract.
+`on_event()` is non-blocking: `Reading` updates the in-memory map under
+a short mutex; threshold events enqueue a log record to the SDK's batch
+processor. Both return immediately, preserving the EventBus contract.
 
 ### 4.2 New config block
 
@@ -149,11 +172,12 @@ Add to `Config.hpp`:
 
 ```cpp
 struct OtlpConfig {
-    bool        enabled            = false;
-    std::string endpoint;          // e.g. https://otlp-gateway-prod-eu-west-2.grafana.net/otlp
-    std::string auth_header;       // "Basic <base64(instance:token)>" — read from env preferred
-    std::string service_instance_id = "rpi-sentinel-1";
-    int         export_interval_ms  = 5000;
+    bool        enabled              = false;
+    std::string endpoint;            // e.g. https://otlp-gateway-prod-eu-west-2.grafana.net/otlp
+    std::string auth_header;         // literal "Basic <base64(...)>" — dev-only fallback
+    std::string auth_header_env      = "GRAFANA_CLOUD_OTLP_AUTH"; // env var name (preferred)
+    std::string service_instance_id  = "rpi-sentinel-1";
+    int         export_interval_ms   = 5000;
 };
 
 struct Config {
@@ -183,35 +207,77 @@ literal form is documented as not for production.
 After registering existing handlers, before `hub.start()`:
 
 ```cpp
-std::shared_ptr<rpi::OtlpExporter> otlp;
+#ifdef ENABLE_OTLP
+std::shared_ptr<rpi::OtlpExporter> otlp_exporter;
 if (result->otlp.enabled) {
     try {
-        otlp = std::make_shared<rpi::OtlpExporter>(result->otlp);
-        bus.register_handler(otlp);
+        otlp_exporter = std::make_shared<rpi::OtlpExporter>(result->otlp, result->sensors);
+        bus.register_handler(otlp_exporter);
     } catch (const std::exception& e) {
         std::println(stderr, "[main] OTLP exporter init failed: {}", e.what());
+        otlp_exporter.reset();
     }
 }
+#else
+if (result->otlp.enabled) {
+    std::println(stderr, "[main] otlp.enabled=true but binary built without ENABLE_OTLP — ignored");
+}
+#endif
 ```
 
-On shutdown, `otlp.reset()` is called before `hub.stop()` returns, so the
-flush completes while threads are still alive.
+On shutdown, `otlp_exporter.reset()` is called after `hub.stop()` returns
+so the SDK can drain the final batch while no more events are produced.
 
 ### 4.4 Modified: `cmake/Dependencies.cmake`
 
-Add OpenTelemetry C++ SDK. Two paths:
+OpenTelemetry C++ SDK is integrated via **FetchContent** pinned to
+`v1.18.0`, behind a CMake option:
 
-- **Preferred (Ubuntu 24.04+):** `apt install libopentelemetry-cpp-dev` and
-  use `find_package(opentelemetry-cpp CONFIG)`. Avoids a long FetchContent
-  build.
-- **Fallback (cross-compile, Pi OS):** `FetchContent` of
-  `open-telemetry/opentelemetry-cpp` pinned at a release tag (e.g. `v1.15.0`),
-  with `WITH_OTLP_HTTP=ON`, `WITH_OTLP_GRPC=OFF`, `BUILD_TESTING=OFF` to
-  minimize footprint.
+```cmake
+option(ENABLE_OTLP "Enable OTLP/HTTP export to Grafana Cloud" OFF)
+```
 
-We want the **HTTP/Protobuf** exporter, not gRPC: it pulls only
-`libcurl` + `protobuf` rather than the full gRPC stack, which trims
-build time from ~15 min to ~3 min on a Pi.
+Default OFF so CI and local iteration stay fast (the SDK is the slowest
+dep in the project). Enable on actual deployments with `-DENABLE_OTLP=ON`.
+
+Configuration choices:
+
+- `WITH_OTLP_HTTP=ON`, `WITH_OTLP_GRPC=OFF` — HTTP/Protobuf only.
+  Pulls `libcurl` + `protobuf`, not the full gRPC stack.
+- `WITH_ABSEIL=OFF`, `WITH_EXAMPLES=OFF`, `OPENTELEMETRY_INSTALL=OFF`,
+  `BUILD_W3CTRACECONTEXT_TEST=OFF` — minimize footprint.
+- **`BUILD_TESTING` workaround:** opentelemetry-cpp's CMakeLists keys
+  off `BUILD_TESTING` for its own tests **and** FORCE-sets it to OFF
+  in the cache mid-`MakeAvailable`. We save the user value before
+  FetchContent and restore it after, so `tests/` still builds.
+- **SYSTEM include trick:** `target_include_directories(otel SYSTEM PRIVATE ...)`
+  re-adds the SDK headers as system headers so the project's
+  `-Wshadow -Wpedantic -Werror` does not trip on third-party code.
+
+Apt prerequisites on Debian / Raspberry Pi OS / Ubuntu 24.04 when
+building with `ENABLE_OTLP=ON`:
+
+```
+sudo apt-get install -y \
+    g++-14 cmake ninja-build libsqlite3-dev \
+    libprotobuf-dev protobuf-compiler \
+    libcurl4-openssl-dev libssl-dev zlib1g-dev
+```
+
+Note: `libprotobuf-dev` and `protobuf-compiler` are **separate** packages
+in Debian. Installing only the first leads to
+`PROTOBUF_PROTOC_EXECUTABLE-NOTFOUND` at configure time. If that error
+shows up after a partial install, add the missing package and **delete
+`build/`** before re-running CMake (cached not-found values stick).
+
+The first build of `opentelemetry-cpp` takes ~3 min on x86_64 and
+**15–25 min on a Pi 4/5**. Subsequent builds are fully incremental
+(seconds). Run the first build under `screen` / `tmux` if connected
+over SSH.
+
+A native apt package (`libopentelemetry-cpp-dev`) is **not** available
+on noble or Bookworm at the time of writing; FetchContent is the only
+reasonable path.
 
 ### 4.5 Removed
 
@@ -240,71 +306,110 @@ unless we add other pkg-config-based deps (review at implementation time).
 
 ## 5. Grafana Cloud setup (one-shot, manual)
 
-1. Create account at `grafana.com`, **EU region** (data residency: EU).
-   The OTLP endpoint will be of the form
-   `https://otlp-gateway-prod-eu-west-2.grafana.net/otlp` (the exact
-   sub-region depends on the stack assignment shown in the UI).
-2. In *Connections → Add new connection → OpenTelemetry (OTLP)*, copy:
-   - Endpoint URL.
-   - Instance ID.
-   - Generate an API token, scope `MetricsPublisher` + `LogsPublisher`.
-   - Compose `Basic base64(instance_id:token)`.
-3. Store the auth header in:
-   - On the Pi: a `systemd` unit `Environment=GRAFANA_CLOUD_OTLP_AUTH=...`
-     or a `/etc/rpi-sentinel.env` file referenced by `EnvironmentFile=`.
-   - In CI (if integration tests hit the cloud): GitHub Secret
-     `GRAFANA_CLOUD_OTLP_AUTH`.
-4. Build the dashboard:
-   - One *Time series* panel per metric type (temperature, humidity,
-     pressure, motion), grouped by `sensor_id` label.
-   - One *Stat* panel per sensor showing the current value with thresholds
-     colored from the daemon's warn/crit (manual sync).
-   - One *Logs* panel filtered on
-     `{service_name="rpi-sentinel"} | json`, showing threshold events
-     chronologically.
-5. Configure alert rules:
-   - **Threshold breach (Loki):**
-     `count_over_time({service_name="rpi-sentinel", event_type="threshold_exceeded"}[1m]) > 0`
-     — fires on every new exceeded event, grouped by `sensor_id` so flapping
-     groups by sensor.
-   - **Silent sensor (Mimir):**
-     `absent_over_time(sensor_reading[2m])` per `sensor_id`
-     — detects daemon crash or sensor failure.
-6. Configure a single **email contact point** for v1. Slack/Discord/webhook
-   integrations are deferred — adding them later is a UI-only change with no
-   impact on the daemon.
-7. Enable *Public Dashboards* on the main dashboard, copy the public URL.
-8. Update `README.md` with the public dashboard URL and a screenshot.
+The full step-by-step procedure (account creation, OTLP token, systemd
+env file, dashboard import, alert rules, smoke checklist, troubleshooting)
+lives in `docs/observability.md`. Key choices made during this design:
+
+### Dashboard: a single generic JSON, not per-config-generated
+
+A `dashboards/rpi-sentinel.json` file is shipped in the repo. It is
+**fully sensor-agnostic** — the user imports it once and never touches
+it when sensors change.
+
+How it works:
+- Template variable `$sensor_id = label_values(sensor_reading, sensor_id)`
+  populates a multi-select dropdown from the data Mimir has actually
+  ingested. Adding a sensor to `config.json` makes it appear in the
+  dropdown automatically.
+- A single time series panel is configured with `repeat: $sensor_id`.
+  Grafana clones it once per selected sensor at render time.
+- Each cloned panel overlays three queries: `sensor_reading`,
+  `sensor_threshold_warn`, `sensor_threshold_crit`, all filtered by
+  `sensor_id="$sensor_id"`. The threshold series come from the static
+  observable gauges described in §3 — they render as dashed warn/crit
+  lines without the dashboard knowing the threshold values.
+- A Loki logs panel filtered on `event_type=~"threshold_.*"` shows
+  breach / recovery events, also filterable via `$sensor_id`.
+
+This avoids the alternatives we considered and rejected:
+- **In-daemon provisioning** (POST dashboard JSON to `/api/dashboards/db`)
+  — would need a second Grafana token with `Editor` scope and ~300 lines
+  of dashboard JSON generation in C++. Disproportionate.
+- **External generator script** reading `config.json` to build the
+  dashboard JSON — needed re-import on every sensor change.
+- **GitOps tools (Grizzly, Terraform)** — overkill for one dashboard,
+  one environment.
+
+### Alerts: email-only, one breach rule + one silent-sensor rule
+
+Configured in *Alerting → Alert rules* (full PromQL/LogQL queries,
+folder layout and contact-point setup in `docs/observability.md`).
+The two rules complement the daemon's hysteresis: it owns the
+"is this a real breach" decision; Grafana owns notification delivery
+and the "is the daemon alive" check.
+
+### Public dashboard
+
+Optional, deferred. Note: Grafana Cloud public dashboards do **not**
+support template variables. To publish, either remove `$sensor_id`
+(and switch repeat to `metric`) or accept that the public version is a
+trimmed copy. Decision postponed to after Phase 2 validates the
+authenticated dashboard.
 
 ## 6. Phased migration
 
 The migration is additive first, destructive second, so we can roll back at
 each step.
 
-### Phase 1 — Add OTLP export (additive, no removal)
+### Phase 1 — Add OTLP export (additive, no removal) — **DONE**
 
-- Add OpenTelemetry C++ SDK dependency and CMake wiring.
-- Implement `OtlpExporter` and unit tests using the SDK's in-memory
-  `MetricExporter` / `LogRecordExporter` test doubles (no live HTTP server
-  needed in unit tests).
-- Add config block, wire in `main.cpp`, default `enabled: false`.
-- Validate locally against an OTel Collector in Docker (`otel/opentelemetry-collector-contrib`).
-- CI: build only (no cloud calls in CI).
+Delivered:
 
-**Exit criteria:** with `otlp.enabled=true` and a local Collector, metrics and
-logs visible in the Collector debug exporter. Web dashboard, MQTT, and
-SQLite history all still work unchanged.
+- `cmake/Dependencies.cmake`: `ENABLE_OTLP` option (default OFF) + FetchContent of
+  opentelemetry-cpp v1.18.0 (HTTP/Protobuf only, no gRPC). `BUILD_TESTING`
+  save-restore workaround. Apt prerequisites documented in §4.4.
+- `src/otel/OtlpExporter.{hpp,cpp}` implementing `IAlertHandler`. Three
+  observable gauges (`sensor.reading`, `sensor.threshold.warn`,
+  `sensor.threshold.crit`), batch log processor for threshold events.
+  Resource attributes: `service.name`, `service.instance.id`, `host.name`.
+- `src/main.cpp`: instantiation + flush on shutdown, gated `#ifdef ENABLE_OTLP`.
+- `OtlpConfig` in `Config.hpp`, parsed by `ConfigLoader`, serialized by
+  `save_config`. Auth resolved via env var (`auth_header_env` →
+  `getenv` → literal `auth_header` fallback).
+- `dashboards/rpi-sentinel.json`: generic dashboard (template vars +
+  repeat panels + threshold overlay).
+- `docs/observability.md`: end-to-end setup, dashboard import, alert
+  rules, smoke checklist, troubleshooting.
+- 4 ConfigLoader tests for the otlp block (always run).
+- 4 OtlpExporter constructor tests (gated on `ENABLE_OTLP`).
 
-### Phase 2 — Connect to Grafana Cloud
+Verification:
+- `ENABLE_OTLP=OFF` (CI default path): 29/29 tests pass, build under 1 min.
+- `ENABLE_OTLP=ON`: 33/33 tests pass; SDK build ~3 min on x86_64,
+  ~15-25 min on a Pi 4/5.
 
-- Manual Grafana Cloud setup (section 5), EU region.
-- Update Pi's `config.json` and systemd unit to enable OTLP.
-- Build dashboards and alert rules in Grafana UI.
-- Run the daemon for ~48 h alongside the existing web dashboard, compare
-  values, validate alerting cadence and email delivery.
+Commits: `f0fdda9` (scaffolding), `dedc8dd` (threshold gauges + dashboard).
 
-**Exit criteria:** public dashboard URL accessible, threshold breach
+### Phase 2 — Connect to Grafana Cloud — **IN PROGRESS**
+
+- [x] Grafana Cloud account created, EU region.
+- [x] OTLP token generated (scopes `MetricsPublisher` + `LogsPublisher`),
+      validated against `otlp-gateway-prod-eu-west-2` via `curl` (HTTP 200).
+- [x] `/etc/rpi-sentinel.env` deployed with `GRAFANA_CLOUD_OTLP_AUTH`.
+- [ ] Pi build with `ENABLE_OTLP=ON` (in progress; first build ~15–25 min
+      due to SDK compile from source).
+- [ ] systemd service file installed and enabled.
+- [ ] Daemon log shows `[otlp] Exporter initialized`, metrics visible in
+      *Explore → Mimir* on `sensor_reading` query.
+- [ ] `dashboards/rpi-sentinel.json` imported, datasource mapping done.
+- [ ] Two alert rules created (threshold breach + silent sensor) with
+      email contact point.
+- [ ] Smoke test from `docs/observability.md` executed end to end.
+
+**Exit criteria:** authenticated dashboard URL accessible, threshold breach
 alerts arrive via email within 1–2 min of the daemon dispatching the event.
+Web dashboard, MQTT, and SQLite history all still work unchanged
+(removal happens in Phase 3).
 
 ### Phase 3 — Decommission custom web + MQTT stack
 
@@ -334,30 +439,32 @@ separate decision driven by retention policy, not by this migration.
 
 ## 7. Testing strategy
 
-### Unit
-- `OtlpExporter` event-to-signal mapping: feed a `SensorEvent`, assert the
-  appropriate gauge update / log record is produced. Use a fake exporter
-  injected via the SDK's `MetricExporter` / `LogRecordExporter` interfaces.
-- Boundary cases: SDK init failure (bad endpoint, missing token) must not
-  crash the daemon; `OtlpExporter` constructor throws, `main` logs and
-  continues without it.
+### Unit (delivered)
+- `tests/test_config_loader.cpp`: 4 tests for the `otlp` block — defaults,
+  full block parsing, `enabled=true` requires endpoint, non-positive
+  `export_interval_ms` rejected. Always run, no SDK dependency.
+- `tests/test_otlp_exporter.cpp` (gated `ENABLE_OTLP`): 4 tests —
+  rejects empty endpoint, rejects missing auth, constructs and accepts
+  all event types without throwing, resolves auth header from env.
+  Uses an unroutable endpoint and a long export interval so no real
+  network traffic is generated.
 
-### Integration (local)
-- `docker-compose.yml` in `tests/integration/otlp/` running
-  `otel/opentelemetry-collector-contrib` with a debug exporter and a file
-  exporter.
-- A test harness starts the daemon with OTLP enabled, posts simulated
-  readings, asserts the file exporter contains the expected metrics and logs.
+### Integration (deferred, optional)
+- A `docker-compose.yml` running `otel/opentelemetry-collector-contrib`
+  with a file exporter would let us assert the on-wire format end to end
+  without hitting Grafana Cloud. Not implemented in Phase 1 — the
+  `curl` smoke test against the real gateway plus the constructor
+  unit tests have proven sufficient so far.
 
 ### Manual (cloud)
-- After Phase 2, document a 30-min smoke checklist in
-  `docs/observability.md`: trigger a threshold breach, verify dashboard,
+- Smoke checklist in `docs/observability.md` §"Smoke checklist after
+  Phase 2 deployment": trigger a threshold breach, verify dashboard,
   verify email, kill daemon, verify silent-sensor alert fires.
 
 ### Regression
-- Existing tests (`EventBus*`, `ThresholdMonitor*`, `HistoryStore*`) remain
-  unchanged and must stay green throughout. Web tests are deleted in
-  Phase 3.
+- Existing tests (`EventBus*`, `ThresholdMonitor*`, `HistoryStore*`,
+  `ConfigLoader*`, `WebStateHydration*`) remain green throughout
+  Phase 1. Web tests are deleted in Phase 3.
 
 ## 8. Configuration & secrets
 
@@ -403,14 +510,16 @@ separate decision driven by retention policy, not by this migration.
 | `README.md`                           | Public Grafana dashboard URL + screenshot; drop GitHub Pages and MQTT sections; document config-edit-and-restart for threshold changes |
 | `CLAUDE.md`                           | Rewrite web + MQTT sections; update build prerequisites               |
 
-## 11. Effort estimate
+## 11. Effort estimate vs actuals
 
-Rough sizing, assuming familiarity with the codebase and one focused day per phase:
+| Phase | Estimate | Actual | Notes |
+|---|---|---|---|
+| Phase 1 (OTLP exporter + tests) | ~1.5 days | ~1 day | Most time spent on SDK API quirks: ABI v1 vs v2 (synchronous Gauge gated), `BUILD_TESTING` collision, `-Wshadow` in third-party headers. All resolved. |
+| Phase 1 extension (threshold gauges + dashboard) | not estimated | ~0.5 day | Added after deciding the dashboard should be fully generic (§5). |
+| Phase 2 (Grafana Cloud + dashboards + alerts) | ~0.5 day | in progress | Account creation and token validation went smoothly; SDK build on Pi is the long pole (~15–25 min one-shot). |
+| Phase 3 (decommission) | ~0.5 day | not started | Triggered after Phase 2 validated in production. |
+| Documentation | ~0.5 day | ~0.5 day so far | `docs/observability.md` written; remaining doc updates are part of Phase 3. |
 
-- Phase 1 (OTLP exporter + tests): ~1.5 days
-- Phase 2 (Grafana Cloud setup + dashboards + alerts): ~0.5 day
-- Phase 3 (decommission): ~0.5 day
-- Documentation: ~0.5 day
-
-Total: **~3 days** of focused work. Most of the risk concentrates in Phase 1
-around the SDK build configuration on the Pi.
+Risks materialized so far: the SDK build on Raspberry Pi is exactly as
+slow as expected; mitigation (gating behind `ENABLE_OTLP` and using
+HTTP-only) pays off in CI iteration speed.
