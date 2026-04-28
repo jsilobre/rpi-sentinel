@@ -1,0 +1,134 @@
+{
+  "apiVersion": 1,
+  "groups": [
+    {
+      "orgId": 1,
+      "name": "rpi-sentinel",
+      "folder": "rpi-sentinel",
+      "interval": "30s",
+      "rules": [
+        {
+          "uid": "rpi-sentinel-threshold-breach",
+          "title": "Sensor threshold breach",
+          "condition": "C",
+          "data": [
+            {
+              "refId": "A",
+              "queryType": "range",
+              "relativeTimeRange": {"from": 300, "to": 0},
+              "datasourceUid": "YOUR_LOKI_UID",
+              "model": {
+                "editorMode": "code",
+                "expr": "count_over_time({service_name=\"rpi-sentinel\"} | event_type=\"threshold_exceeded\" [1m])",
+                "queryType": "range",
+                "refId": "A",
+                "instant": false,
+                "range": true
+              }
+            },
+            {
+              "refId": "B",
+              "datasourceUid": "__expr__",
+              "model": {
+                "refId": "B",
+                "type": "reduce",
+                "datasource": {"type": "__expr__", "uid": "__expr__"},
+                "expression": "A",
+                "reducer": "last",
+                "settings": {"mode": "dropNN"}
+              }
+            },
+            {
+              "refId": "C",
+              "datasourceUid": "__expr__",
+              "model": {
+                "refId": "C",
+                "type": "threshold",
+                "datasource": {"type": "__expr__", "uid": "__expr__"},
+                "expression": "B",
+                "conditions": [
+                  {
+                    "evaluator": {"params": [0], "type": "gt"},
+                    "operator": {"type": "and"},
+                    "query": {"params": ["C"]},
+                    "reducer": {"params": [], "type": "last"},
+                    "type": "query"
+                  }
+                ]
+              }
+            }
+          ],
+          "noDataState": "NoData",
+          "execErrState": "Error",
+          "for": "0s",
+          "annotations": {
+            "summary": "Sensor breach",
+            "description": "Threshold exceeded — check the rpi-sentinel dashboard"
+          },
+          "labels": {},
+          "isPaused": false
+        },
+        {
+          "uid": "rpi-sentinel-sensor-silent",
+          "title": "Sensor silent",
+          "condition": "C",
+          "data": [
+            {
+              "refId": "A",
+              "queryType": "",
+              "relativeTimeRange": {"from": 300, "to": 0},
+              "datasourceUid": "YOUR_PROMETHEUS_UID",
+              "model": {
+                "editorMode": "code",
+                "expr": "absent_over_time(sensor_reading[2m])",
+                "instant": true,
+                "range": false,
+                "refId": "A"
+              }
+            },
+            {
+              "refId": "B",
+              "datasourceUid": "__expr__",
+              "model": {
+                "refId": "B",
+                "type": "reduce",
+                "datasource": {"type": "__expr__", "uid": "__expr__"},
+                "expression": "A",
+                "reducer": "last",
+                "settings": {"mode": "dropNN"}
+              }
+            },
+            {
+              "refId": "C",
+              "datasourceUid": "__expr__",
+              "model": {
+                "refId": "C",
+                "type": "threshold",
+                "datasource": {"type": "__expr__", "uid": "__expr__"},
+                "expression": "B",
+                "conditions": [
+                  {
+                    "evaluator": {"params": [0], "type": "gt"},
+                    "operator": {"type": "and"},
+                    "query": {"params": ["C"]},
+                    "reducer": {"params": [], "type": "last"},
+                    "type": "query"
+                  }
+                ]
+              }
+            }
+          ],
+          "noDataState": "NoData",
+          "execErrState": "Error",
+          "for": "1m",
+          "annotations": {
+            "summary": "Sensor silent",
+            "description": "No readings received for 2+ minutes — daemon may have crashed or sensor stalled"
+          },
+          "labels": {},
+          "isPaused": false
+        }
+      ]
+    }
+  ]
+}
