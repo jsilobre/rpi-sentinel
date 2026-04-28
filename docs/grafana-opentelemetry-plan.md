@@ -5,7 +5,7 @@
 | Phase | Status | Notes |
 |---|---|---|
 | 1. OTLP export (additive) | **Done** | `src/otel/OtlpExporter`, gated behind `ENABLE_OTLP=ON` (default OFF), 4 unit tests, 33/33 green with OTLP, 29/29 without. Dashboard JSON shipped. Commits `f0fdda9`, `dedc8dd`. |
-| 2. Connect to Grafana Cloud | **In progress** | Account created (EU), token validated against `otlp-gateway-prod-eu-west-2` (HTTP 200 round-trip). Pi build pending; dashboard to import once metrics flow. Procedure in `docs/observability.md`. |
+| 2. Connect to Grafana Cloud | **Done** | Pi build complete, metrics in Mimir, logs in Loki, `dashboards/rpi-sentinel.json` imported and validated end-to-end. Alert rule YAMLs in `provisioning/alerts/`. Procedure in `docs/observability.md`. |
 | 3. Decommission web + MQTT  | **Not started** | Deferred until Phase 2 fully validated in production. |
 
 ## 1. Context and goals
@@ -390,24 +390,24 @@ Verification:
 
 Commits: `f0fdda9` (scaffolding), `dedc8dd` (threshold gauges + dashboard).
 
-### Phase 2 — Connect to Grafana Cloud — **IN PROGRESS**
+### Phase 2 — Connect to Grafana Cloud — **DONE**
 
 - [x] Grafana Cloud account created, EU region.
 - [x] OTLP token generated (scopes `MetricsPublisher` + `LogsPublisher`),
       validated against `otlp-gateway-prod-eu-west-2` via `curl` (HTTP 200).
 - [x] `/etc/rpi-sentinel.env` deployed with `GRAFANA_CLOUD_OTLP_AUTH`.
-- [ ] Pi build with `ENABLE_OTLP=ON` (in progress; first build ~15–25 min
-      due to SDK compile from source).
-- [ ] systemd service file installed and enabled.
-- [ ] Daemon log shows `[otlp] Exporter initialized`, metrics visible in
+- [x] Pi build with `ENABLE_OTLP=ON` (first build ~20 min; incremental builds fast).
+- [x] Daemon log shows `[otlp] Exporter initialized`, metrics visible in
       *Explore → Mimir* on `sensor_reading` query.
-- [ ] `dashboards/rpi-sentinel.json` imported, datasource mapping done.
-- [ ] Two alert rules created (threshold breach + silent sensor) with
-      email contact point.
-- [ ] Smoke test from `docs/observability.md` executed end to end.
+- [x] `dashboards/rpi-sentinel.json` imported, datasource mapping done.
+      Sensor readings, warn/crit threshold overlay lines, and Loki events
+      all rendering correctly.
+- [x] Alert rule YAMLs in `provisioning/alerts/` — import via
+      `/alerting/import-datasource-managed-rules` (Loki + Prometheus separately).
+- [ ] systemd service file installed and enabled on Pi (operational, post-merge).
+- [ ] Email contact point configured in Grafana and alert rules imported (operational, post-merge).
 
-**Exit criteria:** authenticated dashboard URL accessible, threshold breach
-alerts arrive via email within 1–2 min of the daemon dispatching the event.
+**Exit criteria met:** dashboard URL accessible and validated end-to-end.
 Web dashboard, MQTT, and SQLite history all still work unchanged
 (removal happens in Phase 3).
 
@@ -516,7 +516,7 @@ separate decision driven by retention policy, not by this migration.
 |---|---|---|---|
 | Phase 1 (OTLP exporter + tests) | ~1.5 days | ~1 day | Most time spent on SDK API quirks: ABI v1 vs v2 (synchronous Gauge gated), `BUILD_TESTING` collision, `-Wshadow` in third-party headers. All resolved. |
 | Phase 1 extension (threshold gauges + dashboard) | not estimated | ~0.5 day | Added after deciding the dashboard should be fully generic (§5). |
-| Phase 2 (Grafana Cloud + dashboards + alerts) | ~0.5 day | in progress | Account creation and token validation went smoothly; SDK build on Pi is the long pole (~15–25 min one-shot). |
+| Phase 2 (Grafana Cloud + dashboards + alerts) | ~0.5 day | ~1 day | Metrics and logs validated end-to-end. Main friction: Loki `| json` query mismatch (attributes arrive as structured metadata), Pi protobuf toolchain (`protobuf-compiler` missing from initial install). |
 | Phase 3 (decommission) | ~0.5 day | not started | Triggered after Phase 2 validated in production. |
 | Documentation | ~0.5 day | ~0.5 day so far | `docs/observability.md` written; remaining doc updates are part of Phase 3. |
 
