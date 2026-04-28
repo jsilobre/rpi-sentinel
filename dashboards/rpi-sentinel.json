@@ -129,7 +129,7 @@
         {
           "datasource": {"type": "loki", "uid": "${DS_LOKI}"},
           "editorMode": "code",
-          "expr": "{service_name=\"rpi-sentinel\"} | json | event_type =~ \"threshold_.*\" | sensor_id =~ \"${sensor_id:regex}\"",
+          "expr": "{service_name=\"rpi-sentinel\"} | event_type =~ \"threshold_.*\" | sensor_id =~ \"${sensor_id:regex}\"",
           "queryType": "range",
           "refId": "A"
         }
