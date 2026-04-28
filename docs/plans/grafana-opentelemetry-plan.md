@@ -5,7 +5,7 @@
 | Phase | Status | Notes |
 |---|---|---|
 | 1. OTLP export (additive) | **Done** | `src/otel/OtlpExporter`, gated behind `ENABLE_OTLP=ON` (default OFF), 4 unit tests, 33/33 green with OTLP, 29/29 without. Dashboard JSON shipped. Commits `f0fdda9`, `dedc8dd`. |
-| 2. Connect to Grafana Cloud | **Done** | Pi build complete, metrics in Mimir, logs in Loki, `dashboards/rpi-sentinel.json` imported and validated end-to-end. Alert rule YAMLs in `provisioning/alerts/`. Procedure in `docs/observability.md`. |
+| 2. Connect to Grafana Cloud | **Done** | Pi build complete, metrics in Mimir, logs in Loki, `grafana/dashboards/rpi-sentinel.json` imported and validated end-to-end. Alert rule YAMLs in `grafana/provisioning/alerts/`. Procedure in `docs/observability.md`. |
 
 ## 1. Context and goals
 
@@ -311,7 +311,7 @@ lives in `docs/observability.md`. Key choices made during this design:
 
 ### Dashboard: a single generic JSON, not per-config-generated
 
-A `dashboards/rpi-sentinel.json` file is shipped in the repo. It is
+A `grafana/dashboards/rpi-sentinel.json` file is shipped in the repo. It is
 **fully sensor-agnostic** — the user imports it once and never touches
 it when sensors change.
 
@@ -375,7 +375,7 @@ Delivered:
 - `OtlpConfig` in `Config.hpp`, parsed by `ConfigLoader`, serialized by
   `save_config`. Auth resolved via env var (`auth_header_env` →
   `getenv` → literal `auth_header` fallback).
-- `dashboards/rpi-sentinel.json`: generic dashboard (template vars +
+- `grafana/dashboards/rpi-sentinel.json`: generic dashboard (template vars +
   repeat panels + threshold overlay).
 - `docs/observability.md`: end-to-end setup, dashboard import, alert
   rules, smoke checklist, troubleshooting.
@@ -398,10 +398,10 @@ Commits: `f0fdda9` (scaffolding), `dedc8dd` (threshold gauges + dashboard).
 - [x] Pi build with `ENABLE_OTLP=ON` (first build ~20 min; incremental builds fast).
 - [x] Daemon log shows `[otlp] Exporter initialized`, metrics visible in
       *Explore → Mimir* on `sensor_reading` query.
-- [x] `dashboards/rpi-sentinel.json` imported, datasource mapping done.
+- [x] `grafana/dashboards/rpi-sentinel.json` imported, datasource mapping done.
       Sensor readings, warn/crit threshold overlay lines, and Loki events
       all rendering correctly.
-- [x] Alert rule YAMLs in `provisioning/alerts/` — import via
+- [x] Alert rule YAMLs in `grafana/provisioning/alerts/` — import via
       `/alerting/import-datasource-managed-rules` (Loki + Prometheus separately).
 - [ ] systemd service file installed and enabled on Pi (operational, post-merge).
 - [ ] Email contact point configured in Grafana and alert rules imported (operational, post-merge).

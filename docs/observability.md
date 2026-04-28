@@ -74,11 +74,11 @@ The first metric/log records reach Grafana Cloud within
 
 ## Importing the dashboard
 
-The repo ships `dashboards/rpi-sentinel.json` — a single generic dashboard
+The repo ships `grafana/dashboards/rpi-sentinel.json` — a single generic dashboard
 that works for any sensor configuration.
 
 1. In Grafana Cloud, *Dashboards → New → Import*.
-2. *Upload JSON file* → pick `dashboards/rpi-sentinel.json`.
+2. *Upload JSON file* → pick `grafana/dashboards/rpi-sentinel.json`.
 3. Select the **Prometheus** datasource (named `grafanacloud-<stack>-prom`)
    for `${DS_PROMETHEUS}`, and the **Loki** datasource for `${DS_LOKI}`.
 4. *Import*.
