@@ -1,0 +1,12 @@
+groups:
+  - name: rpi-sentinel
+    interval: 30s
+    rules:
+      - alert: SensorThresholdBreach
+        expr: count_over_time({service_name="rpi-sentinel"} | event_type="threshold_exceeded" [1m]) > 0
+        for: 0s
+        labels:
+          severity: warning
+        annotations:
+          summary: Sensor breach
+          description: Threshold exceeded — check the rpi-sentinel dashboard
