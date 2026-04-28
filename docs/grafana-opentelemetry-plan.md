@@ -6,7 +6,6 @@
 |---|---|---|
 | 1. OTLP export (additive) | **Done** | `src/otel/OtlpExporter`, gated behind `ENABLE_OTLP=ON` (default OFF), 4 unit tests, 33/33 green with OTLP, 29/29 without. Dashboard JSON shipped. Commits `f0fdda9`, `dedc8dd`. |
 | 2. Connect to Grafana Cloud | **Done** | Pi build complete, metrics in Mimir, logs in Loki, `dashboards/rpi-sentinel.json` imported and validated end-to-end. Alert rule YAMLs in `provisioning/alerts/`. Procedure in `docs/observability.md`. |
-| 3. Decommission web + MQTT  | **Not started** | Deferred until Phase 2 fully validated in production. |
 
 ## 1. Context and goals
 
@@ -353,13 +352,13 @@ and the "is the daemon alive" check.
 Optional, deferred. Note: Grafana Cloud public dashboards do **not**
 support template variables. To publish, either remove `$sensor_id`
 (and switch repeat to `metric`) or accept that the public version is a
-trimmed copy. Decision postponed to after Phase 2 validates the
-authenticated dashboard.
+trimmed copy.
 
 ## 6. Phased migration
 
-The migration is additive first, destructive second, so we can roll back at
-each step.
+The migration is additive: OTLP is added alongside the existing web and
+MQTT stack so we can roll back at any point and so both UIs can coexist
+while we evaluate which to keep.
 
 ### Phase 1 — Add OTLP export (additive, no removal) — **DONE**
 
@@ -408,34 +407,10 @@ Commits: `f0fdda9` (scaffolding), `dedc8dd` (threshold gauges + dashboard).
 - [ ] Email contact point configured in Grafana and alert rules imported (operational, post-merge).
 
 **Exit criteria met:** dashboard URL accessible and validated end-to-end.
-Web dashboard, MQTT, and SQLite history all still work unchanged
-(removal happens in Phase 3).
-
-### Phase 3 — Decommission custom web + MQTT stack
-
-Single destructive phase since we are working on a feature branch and have
-no production deployments depending on the legacy stack.
-
-- Remove `src/web/`, `dashboard/`, `.github/workflows/deploy-dashboard.yml`,
-  `cpp-httplib` dep.
-- Remove `src/alerts/MqttPublisher.{hpp,cpp}`, `MqttConfig`, the
-  `ENABLE_MQTT` build option and `libmosquitto` dep.
-- Remove `web_enabled` / `web_port` / `mqtt` config blocks; clean
-  `config.example.json`.
-- Remove primer of `WebState` from `main.cpp`; simplify the file to:
-  config → bus + handlers (Log, Sqlite, Otlp) → hub → wait → shutdown.
-- Update `docs/architecture.md`, `docs/persistence.md`, `docs/workflow.md`,
-  `docs/build-guide.md`, `README.md`, `CLAUDE.md`.
-- New `docs/observability.md` covering OTLP setup, Grafana dashboard layout,
-  alert rules, and how to add new alerts.
-
-**Exit criteria:** build green, all tests green, daemon binary noticeably
-smaller, no references to `WebState`, `HttpServer`, `MqttPublisher`,
-`mosquitto`, or `httplib` left in the source tree.
-
-`HistoryStore` SQLite is kept: it is the only data path that survives an
-Internet outage, adds <1 % CPU overhead, and its removal would be a
-separate decision driven by retention policy, not by this migration.
+Web dashboard, MQTT, and SQLite history all still work unchanged — the
+OTLP exporter is purely additive and lives alongside the existing stack.
+Whether to keep both UIs long-term or decommission the custom web/MQTT
+stack is left as an open follow-up decision.
 
 ## 7. Testing strategy
 
@@ -463,8 +438,8 @@ separate decision driven by retention policy, not by this migration.
 
 ### Regression
 - Existing tests (`EventBus*`, `ThresholdMonitor*`, `HistoryStore*`,
-  `ConfigLoader*`, `WebStateHydration*`) remain green throughout
-  Phase 1. Web tests are deleted in Phase 3.
+  `ConfigLoader*`, `WebStateHydration*`) remain green — OTLP support is
+  additive and does not touch any existing path.
 
 ## 8. Configuration & secrets
 
@@ -498,27 +473,14 @@ separate decision driven by retention policy, not by this migration.
 - **Runtime threshold edits:** removed; config-edit + restart instead.
 - **`HistoryStore`:** kept as local source of truth and offline buffer.
 
-## 10. Documentation updates (Phase 3)
-
-| File                                  | Change                                                                |
-|---------------------------------------|-----------------------------------------------------------------------|
-| `docs/architecture.md`                | Replace web + MQTT layer description with OTel exporter; new component table |
-| `docs/persistence.md`                 | Remove all MQTT/history-on-demand content; SQLite is now local-only   |
-| `docs/workflow.md`                    | Update per-cycle diagram: drop `WebAlert` and `MqttPublisher`, add OTLP path |
-| `docs/build-guide.md`                 | OpenTelemetry SDK install; remove `cpp-httplib`, `libmosquitto`, `ENABLE_MQTT` |
-| `docs/observability.md` (new)         | OTLP setup, dashboard layout, alert rules, smoke checklist            |
-| `README.md`                           | Public Grafana dashboard URL + screenshot; drop GitHub Pages and MQTT sections; document config-edit-and-restart for threshold changes |
-| `CLAUDE.md`                           | Rewrite web + MQTT sections; update build prerequisites               |
-
-## 11. Effort estimate vs actuals
+## 10. Effort estimate vs actuals
 
 | Phase | Estimate | Actual | Notes |
 |---|---|---|---|
 | Phase 1 (OTLP exporter + tests) | ~1.5 days | ~1 day | Most time spent on SDK API quirks: ABI v1 vs v2 (synchronous Gauge gated), `BUILD_TESTING` collision, `-Wshadow` in third-party headers. All resolved. |
 | Phase 1 extension (threshold gauges + dashboard) | not estimated | ~0.5 day | Added after deciding the dashboard should be fully generic (§5). |
 | Phase 2 (Grafana Cloud + dashboards + alerts) | ~0.5 day | ~1 day | Metrics and logs validated end-to-end. Main friction: Loki `| json` query mismatch (attributes arrive as structured metadata), Pi protobuf toolchain (`protobuf-compiler` missing from initial install). |
-| Phase 3 (decommission) | ~0.5 day | not started | Triggered after Phase 2 validated in production. |
-| Documentation | ~0.5 day | ~0.5 day so far | `docs/observability.md` written; remaining doc updates are part of Phase 3. |
+| Documentation | ~0.5 day | ~0.5 day | `docs/observability.md` written. |
 
 Risks materialized so far: the SDK build on Raspberry Pi is exactly as
 slow as expected; mitigation (gating behind `ENABLE_OTLP` and using
