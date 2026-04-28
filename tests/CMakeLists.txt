@@ -27,6 +27,11 @@ if(ENABLE_MQTT)
     target_link_libraries(rpi_tests PRIVATE alerts)
 endif()
 
+if(ENABLE_OTLP)
+    target_sources(rpi_tests PRIVATE test_otlp_exporter.cpp)
+    target_link_libraries(rpi_tests PRIVATE otel)
+endif()
+
 apply_compiler_options(rpi_tests)
 
 include(GoogleTest)

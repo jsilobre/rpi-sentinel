@@ -1,0 +1,12 @@
+groups:
+  - name: rpi-sentinel
+    interval: 30s
+    rules:
+      - alert: SensorSilent
+        expr: absent_over_time(sensor_reading[2m])
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: Sensor silent
+          description: No readings received for 2+ minutes — daemon may have crashed or sensor stalled

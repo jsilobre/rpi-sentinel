@@ -88,6 +88,16 @@ auto load_config(const std::filesystem::path& path) -> std::expected<Config, std
             if (h.contains("max_points_per_sensor")) cfg.history.max_points_per_sensor = h["max_points_per_sensor"].get<int>();
         }
 
+        if (j.contains("otlp") && j["otlp"].is_object()) {
+            const auto& o = j["otlp"];
+            if (o.contains("enabled"))             cfg.otlp.enabled             = o["enabled"].get<bool>();
+            if (o.contains("endpoint"))            cfg.otlp.endpoint            = o["endpoint"].get<std::string>();
+            if (o.contains("auth_header"))         cfg.otlp.auth_header         = o["auth_header"].get<std::string>();
+            if (o.contains("auth_header_env"))     cfg.otlp.auth_header_env     = o["auth_header_env"].get<std::string>();
+            if (o.contains("service_instance_id")) cfg.otlp.service_instance_id = o["service_instance_id"].get<std::string>();
+            if (o.contains("export_interval_ms"))  cfg.otlp.export_interval_ms  = o["export_interval_ms"].get<int>();
+        }
+
         if (cfg.hysteresis < 0.0f)
             return std::unexpected("hysteresis must be >= 0");
         if (cfg.poll_interval.count() <= 0)
@@ -96,6 +106,10 @@ auto load_config(const std::filesystem::path& path) -> std::expected<Config, std
             return std::unexpected("history.retention_days must be >= 1");
         if (cfg.history.max_points_per_sensor < 1)
             return std::unexpected("history.max_points_per_sensor must be >= 1");
+        if (cfg.otlp.enabled && cfg.otlp.endpoint.empty())
+            return std::unexpected("otlp.enabled=true but otlp.endpoint is empty");
+        if (cfg.otlp.export_interval_ms <= 0)
+            return std::unexpected("otlp.export_interval_ms must be > 0");
 
         return cfg;
 
@@ -133,6 +147,15 @@ auto save_config(const std::filesystem::path& path, const Config& config) -> std
         {"retention_days",        config.history.retention_days},
         {"max_points_per_sensor", config.history.max_points_per_sensor},
     };
+    j["otlp"] = {
+        {"enabled",             config.otlp.enabled},
+        {"endpoint",            config.otlp.endpoint},
+        {"auth_header_env",     config.otlp.auth_header_env},
+        {"service_instance_id", config.otlp.service_instance_id},
+        {"export_interval_ms",  config.otlp.export_interval_ms},
+    };
+    if (!config.otlp.auth_header.empty())
+        j["otlp"]["auth_header"] = config.otlp.auth_header;
 
     nlohmann::json sensors = nlohmann::json::array();
     for (const auto& sc : config.sensors) {

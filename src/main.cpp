@@ -13,6 +13,10 @@
 #include "alerts/MqttPublisher.hpp"
 #endif
 
+#ifdef ENABLE_OTLP
+#include "otel/OtlpExporter.hpp"
+#endif
+
 #include <csignal>
 #include <chrono>
 #include <filesystem>
@@ -91,6 +95,23 @@ int main(int argc, char* argv[])
     }
 #endif
 
+#ifdef ENABLE_OTLP
+    std::shared_ptr<rpi::OtlpExporter> otlp_exporter;
+    if (result->otlp.enabled) {
+        try {
+            otlp_exporter = std::make_shared<rpi::OtlpExporter>(result->otlp, result->sensors);
+            bus.register_handler(otlp_exporter);
+        } catch (const std::exception& e) {
+            std::println(stderr, "[main] OTLP exporter init failed: {}", e.what());
+            otlp_exporter.reset();
+        }
+    }
+#else
+    if (result->otlp.enabled) {
+        std::println(stderr, "[main] otlp.enabled=true but binary built without ENABLE_OTLP — ignored");
+    }
+#endif
+
     rpi::MonitoringHub hub(bus, std::move(*result));
 
     auto on_config_change = [&hub, &config_path
@@ -142,5 +163,10 @@ int main(int argc, char* argv[])
 #endif
     hub.stop();
     if (http_server) http_server->stop();
+#ifdef ENABLE_OTLP
+    // Reset after monitors have stopped so any final dispatches are
+    // queued, then destruction flushes the SDK providers.
+    otlp_exporter.reset();
+#endif
     return 0;
 }
