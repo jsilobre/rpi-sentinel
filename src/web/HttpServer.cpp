@@ -46,6 +46,8 @@ static constexpr std::string_view DASHBOARD_HTML = R"HTML(<!DOCTYPE html>
 
     .sensors-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:16px;margin-bottom:16px}
     .card{background:#1e293b;border-radius:12px;padding:20px}
+    .sensors-grid .card{display:flex;flex-direction:column;resize:vertical;overflow:hidden;min-height:220px}
+    .chart-wrap{flex:1;min-height:60px;margin-top:14px}
     .card-header{display:flex;align-items:center;gap:8px;margin-bottom:12px}
     .card-header h2{font-size:.75rem;color:#64748b;text-transform:uppercase;letter-spacing:.07em;flex:1;display:flex;align-items:center;gap:8px}
     .metric-tag{background:#0f172a;color:#475569;border-radius:4px;padding:2px 6px;font-size:.65rem;font-weight:600;text-transform:lowercase;letter-spacing:0}
@@ -197,8 +199,8 @@ function ensureCard(sensor) {
     </div>
     <div><span class="sensor-value" id="val-${sid}">--</span></div>
     <span class="status ok" id="status-${sid}">--</span>
-    <canvas id="chart-${sid}" height="140" style="margin-top:14px"></canvas>
-    <div class="chart-hint">Scroll to zoom &middot; Drag to pan</div>
+    <div class="chart-wrap"><canvas id="chart-${sid}"></canvas></div>
+    <div class="chart-hint">Scroll to zoom &middot; Drag to pan &middot; Drag bottom-right corner to resize</div>
   `;
   document.getElementById('sensors-grid').appendChild(card);
 
@@ -216,6 +218,7 @@ function ensureCard(sensor) {
     },
     options: {
       responsive: true,
+      maintainAspectRatio: false,
       animation: false,
       interaction: { intersect: false, mode: 'index' },
       plugins: {

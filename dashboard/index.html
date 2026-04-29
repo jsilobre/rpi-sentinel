@@ -80,7 +80,8 @@
     .stats{display:flex;gap:14px;margin:4px 0 8px;font-size:10.5px;color:var(--muted);font-variant-numeric:tabular-nums}
     .stats b{color:var(--text);font-weight:600}
 
-    .chart-wrap{height:90px}
+    .sensors-grid .card{display:flex;flex-direction:column;resize:vertical;overflow:hidden;min-height:200px}
+    .chart-wrap{flex:1;min-height:60px}
     canvas{display:block;width:100%!important;height:100%!important}
 
     /* Right rail — alerts */
@@ -137,7 +138,7 @@
       border:1px solid var(--border);border-radius:4px;padding:2px 7px;font-size:10px;cursor:pointer;margin-left:auto}
     .reset-zoom-btn:hover{color:var(--text)}
     /* Chart hint */
-    .chart-hint{font-size:10px;color:var(--muted-2);margin-top:3px;text-align:right}
+    .chart-hint{font-size:10px;color:var(--muted-2);margin-top:3px;text-align:right;user-select:none}
     /* Scrollbar */
     .event-list::-webkit-scrollbar,.modal-body::-webkit-scrollbar{width:8px}
     .event-list::-webkit-scrollbar-thumb,.modal-body::-webkit-scrollbar-thumb{background:var(--border);border-radius:8px}
@@ -310,7 +311,7 @@ function ensureCard(sensorId, metric) {
       <span>min <b>--</b></span><span>avg <b>--</b></span><span>max <b>--</b></span>
     </div>
     <div class="chart-wrap"><canvas id="chart-${sid}"></canvas></div>
-    <div class="chart-hint">Scroll to zoom &middot; Drag to pan</div>
+    <div class="chart-hint">Scroll to zoom &middot; Drag to pan &middot; Drag corner to resize</div>
   `;
   document.getElementById('sensors-grid').appendChild(card);
   document.getElementById('sensor-count').textContent = Object.keys(charts).length + 1;
