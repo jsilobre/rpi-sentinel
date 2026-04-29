@@ -1,6 +1,9 @@
 #pragma once
 
 #include "../events/SensorEvent.hpp"
+#include <atomic>
+#include <chrono>
+#include <condition_variable>
 #include <deque>
 #include <mutex>
 #include <string>
@@ -21,6 +24,11 @@ public:
 
     void push_reading(const SensorEvent& event);
     void push_alert(const SensorEvent& event);
+
+    // SSE: returns the current change-counter.
+    uint64_t version() const noexcept;
+    // SSE: blocks until version != last_version or timeout elapses.
+    void wait_for_change(uint64_t last_version, std::chrono::milliseconds timeout) const;
 
     // Replaces (or initialises) a sensor's history with `points` (assumed ASC chronological).
     // Sets has_reading + current_value from the last point if any.
@@ -54,6 +62,8 @@ private:
     };
 
     mutable std::mutex                           mutex_;
+    mutable std::condition_variable              cv_;
+    std::atomic<uint64_t>                        version_{0};
     std::vector<std::string>                     sensor_order_;  // preserves insertion order
     std::unordered_map<std::string, SensorState> sensor_states_;
     std::deque<SensorEvent>                      events_;

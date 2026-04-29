@@ -146,6 +146,7 @@ int main(int argc, char* argv[])
         http_server = std::make_unique<rpi::HttpServer>(
             hub.get_config_snapshot().web_port,
             web_state,
+            history_store,
             [&hub]() { return hub.build_config_json(); },
             on_config_change);
         http_server->start();
