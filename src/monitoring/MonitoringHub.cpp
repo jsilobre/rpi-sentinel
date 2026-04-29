@@ -1,5 +1,6 @@
 #include "MonitoringHub.hpp"
 
+#include "../sensors/CpuTempReader.hpp"
 #include "../sensors/DS18B20Reader.hpp"
 #include "../sensors/DHT11Reader.hpp"
 #include "../sensors/SimulatedSensor.hpp"
@@ -20,6 +21,12 @@ static auto make_sensor(const SensorConfig& sc) -> std::unique_ptr<ISensorReader
         case SensorType::Simulated:
             return std::make_unique<SimulatedSensor>(sc.id, sc.metric,
                 SimulatedSensor::make_for_metric(sc.metric));
+        case SensorType::CpuTemp: {
+            auto path = sc.device_path.empty()
+                ? std::filesystem::path{CpuTempReader::kDefaultThermalPath}
+                : std::filesystem::path{sc.device_path};
+            return std::make_unique<CpuTempReader>(sc.id, std::move(path));
+        }
     }
     return std::make_unique<SimulatedSensor>(sc.id, sc.metric);
 }

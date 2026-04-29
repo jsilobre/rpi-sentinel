@@ -10,6 +10,7 @@ enum class SensorType {
     DS18B20,
     Simulated,
     DHT11,
+    CpuTemp,
 };
 
 struct SensorConfig {
