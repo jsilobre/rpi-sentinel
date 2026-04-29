@@ -36,6 +36,11 @@ struct HistoryConfig {
     int         max_points_per_sensor = 50000;
 };
 
+struct GpioConfig {
+    bool enabled = false;
+    int  pin     = 17;   // BCM pin number
+};
+
 struct Config {
     std::vector<SensorConfig> sensors;
     float                     hysteresis    = 2.0f;
@@ -44,6 +49,7 @@ struct Config {
     uint16_t                  web_port      = 8080;
     MqttConfig                mqtt;
     HistoryConfig             history;
+    GpioConfig                gpio_alert;
 };
 
 } // namespace rpi

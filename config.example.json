@@ -23,6 +23,13 @@
         "retention_days": 7,
         "max_points_per_sensor": 50000
     },
+    // GPIO output alert: drives a BCM pin HIGH on threshold breach, LOW on recovery.
+    // Uses the Linux sysfs interface — no external library needed.
+    // Set "enabled": true and choose the BCM pin number (e.g. 17 → physical pin 11).
+    "gpio_alert": {
+        "enabled": false,
+        "pin": 17
+    },
     // List of sensors to monitor
     "sensors": [
         {

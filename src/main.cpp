@@ -2,6 +2,7 @@
 #include "monitoring/ConfigLoader.hpp"
 #include "monitoring/MonitoringHub.hpp"
 #include "events/EventBus.hpp"
+#include "alerts/GpioAlert.hpp"
 #include "alerts/LogAlert.hpp"
 #include "persistence/HistoryStore.hpp"
 #include "persistence/SqliteHistoryHandler.hpp"
@@ -46,6 +47,11 @@ int main(int argc, char* argv[])
     rpi::EventBus bus;
     bus.register_handler(std::make_shared<rpi::LogAlert>());
     bus.register_handler(std::make_shared<rpi::WebAlert>(web_state));
+
+    if (result->gpio_alert.enabled) {
+        bus.register_handler(std::make_shared<rpi::GpioAlert>(result->gpio_alert.pin));
+        std::println("[main] GPIO alert enabled on pin {}.", result->gpio_alert.pin);
+    }
 
     std::shared_ptr<rpi::HistoryStore> history_store;
     if (result->history.enabled) {
