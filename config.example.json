@@ -36,6 +36,14 @@
     // List of sensors to monitor
     "sensors": [
         {
+            // Built-in Raspberry Pi SoC temperature (no extra hardware needed).
+            // Override "device_path" to target a different thermal zone.
+            "id": "cpu-temp",
+            "type": "cpu_temp",
+            "threshold_warn": 70.0,
+            "threshold_crit": 85.0
+        },
+        {
             "id": "bme280-temp",
             "type": "simulated",
             "metric": "temperature",

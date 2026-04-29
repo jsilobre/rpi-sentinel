@@ -34,7 +34,9 @@
 │   SENSORS          │           │   WEB                 │
 │  ISensorReader     │           │  WebState             │
 │  DS18B20Reader     │           │  HttpServer           │
-│  SimulatedSensor   │           └───────────────────────┘
+│  DHT11Reader       │           └───────────────────────┘
+│  CpuTempReader     │
+│  SimulatedSensor   │
 └────────────────────┘
                                  ┌───────────────────────┐
                                  │   EVENTS              │
@@ -68,6 +70,8 @@ No lower layer depends on a higher layer.
 |---|---|
 | `ISensorReader.hpp` | Abstract interface. Defines `read()` and `sensor_id()`. |
 | `DS18B20Reader.hpp/cpp` | Reads `/sys/bus/w1/devices/<id>/temperature` (Linux 1-Wire kernel driver). |
+| `DHT11Reader.hpp/cpp` | Reads temperature and humidity via the Linux IIO kernel driver. |
+| `CpuTempReader.hpp/cpp` | Reads the Raspberry Pi SoC temperature from `/sys/class/thermal/thermal_zone0/temp` (millidegrees Celsius, divided by 1000). The `device_path` field in `SensorConfig` can override the thermal zone. |
 | `SimulatedSensor.hpp/cpp` | Sensor driven by a generator function (`std::function<float()>`). Uses `make_for_metric()` to select a metric-appropriate waveform. |
 
 **Metric-specific generators** (`SimulatedSensor::make_for_metric`):
@@ -239,9 +243,12 @@ The dashboard automatically creates one card per sensor with units (`°C`, `%`, 
    ┌───┴──────────┐             │   LogAlert       │
    │ DS18B20Reader│             ├──────────────────┤
    ├──────────────┤             │   WebAlert       │
-   │SimulatedSensor│            ├──────────────────┤
-   └───────────────┘            │   MqttPublisher  │
-                                └──────────────────┘
+   │ DHT11Reader  │             ├──────────────────┤
+   ├──────────────┤             │   MqttPublisher  │
+   │CpuTempReader │             └──────────────────┘
+   ├──────────────┤
+   │SimulatedSensor│
+   └───────────────┘
 
 ┌──────────────────────────────────────┐
 │           MonitoringHub              │

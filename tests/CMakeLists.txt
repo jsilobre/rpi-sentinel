@@ -8,6 +8,7 @@ set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(googletest)
 
 add_executable(rpi_tests
+    test_cpu_temp_reader.cpp
     test_event_bus.cpp
     test_threshold_monitor.cpp
     test_config_loader.cpp

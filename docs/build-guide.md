@@ -209,6 +209,33 @@ Set `device_path` in `config.json`:
 
 ---
 
+## Reading the CPU (SoC) temperature
+
+No extra hardware needed — the kernel exposes the temperature via sysfs.
+
+### Verify the thermal zone is available
+
+```bash
+cat /sys/class/thermal/thermal_zone0/temp
+# 52000  ← millidegrees Celsius (= 52.0 °C)
+```
+
+If multiple zones exist (`thermal_zone1`, `thermal_zone2`, …) you can target a specific one
+by overriding `device_path` in the sensor config:
+
+```json
+{
+  "id": "cpu-temp",
+  "type": "cpu_temp",
+  "threshold_warn": 70.0,
+  "threshold_crit": 85.0
+}
+```
+
+When `device_path` is omitted the reader defaults to `thermal_zone0`.
+
+---
+
 ## Adding a test
 
 Tests live in `tests/`. They use Google Test (downloaded via `FetchContent` at `cmake configure` time).
