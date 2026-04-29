@@ -99,6 +99,16 @@ auto load_config(const std::filesystem::path& path) -> std::expected<Config, std
             if (o.contains("export_interval_ms"))  cfg.otlp.export_interval_ms  = o["export_interval_ms"].get<int>();
         }
 
+        if (j.contains("gpio_alert") && j["gpio_alert"].is_object()) {
+            const auto& g = j["gpio_alert"];
+            if (g.contains("enabled")) cfg.gpio_alert.enabled = g["enabled"].get<bool>();
+            if (g.contains("pin"))     cfg.gpio_alert.pin     = g["pin"].get<int>();
+        }
+
+        if (cfg.gpio_alert.pin < 0)
+            return std::unexpected("gpio_alert.pin must be >= 0");
+
+
         if (cfg.hysteresis < 0.0f)
             return std::unexpected("hysteresis must be >= 0");
         if (cfg.poll_interval.count() <= 0)
@@ -158,6 +168,10 @@ auto save_config(const std::filesystem::path& path, const Config& config) -> std
     };
     if (!config.otlp.auth_header.empty())
         j["otlp"]["auth_header"] = config.otlp.auth_header;
+    j["gpio_alert"] = {
+        {"enabled", config.gpio_alert.enabled},
+        {"pin",     config.gpio_alert.pin},
+    };
 
     nlohmann::json sensors = nlohmann::json::array();
     for (const auto& sc : config.sensors) {

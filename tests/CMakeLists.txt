@@ -12,11 +12,13 @@ add_executable(rpi_tests
     test_event_bus.cpp
     test_threshold_monitor.cpp
     test_config_loader.cpp
+    test_gpio_alert.cpp
     test_history_store.cpp
     test_web_state_hydration.cpp
 )
 
 target_link_libraries(rpi_tests PRIVATE
+    alerts
     monitoring
     persistence
     web

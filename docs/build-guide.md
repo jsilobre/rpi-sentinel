@@ -236,6 +236,42 @@ When `device_path` is omitted the reader defaults to `thermal_zone0`.
 
 ---
 
+## Enabling the GPIO output alert
+
+`GpioAlert` uses the Linux sysfs GPIO interface — no extra library needed.
+
+### Hardware wiring (example: LED on BCM pin 17)
+
+```
+RPi physical pin 11  (BCM 17) ──[330 Ω]── LED anode
+RPi physical pin 9   (GND)   ──────────── LED cathode
+```
+
+### Verify sysfs is available
+
+```bash
+ls /sys/class/gpio/
+# export  gpiochip0  gpiochip504  unexport
+```
+
+### Enable in `config.json`
+
+```json
+"gpio_alert": {
+  "enabled": true,
+  "pin": 17
+}
+```
+
+The daemon exports the pin on startup, sets it HIGH on any `ThresholdExceeded` event,
+and resets it LOW (and unexports) on shutdown. Override `device_path` is not needed —
+the pin number alone identifies the sysfs path (`/sys/class/gpio/gpio17/`).
+
+> **Note:** If the process exits uncleanly (e.g. `kill -9`), the pin stays exported.
+> A subsequent start will silently re-use it.
+
+---
+
 ## Adding a test
 
 Tests live in `tests/`. They use Google Test (downloaded via `FetchContent` at `cmake configure` time).

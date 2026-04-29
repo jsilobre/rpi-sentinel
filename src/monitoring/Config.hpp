@@ -46,6 +46,11 @@ struct OtlpConfig {
     int         export_interval_ms   = 5000;
 };
 
+struct GpioConfig {
+    bool enabled = false;
+    int  pin     = 17;   // BCM pin number
+};
+
 struct Config {
     std::vector<SensorConfig> sensors;
     float                     hysteresis    = 2.0f;
@@ -55,6 +60,7 @@ struct Config {
     MqttConfig                mqtt;
     HistoryConfig             history;
     OtlpConfig                otlp;
+    GpioConfig                gpio_alert;
 };
 
 } // namespace rpi

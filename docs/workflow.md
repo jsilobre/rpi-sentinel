@@ -13,6 +13,7 @@ main()
   ├─ 3. Registers handlers
   │       └─ bus.register_handler(LogAlert)
   │       └─ bus.register_handler(WebAlert)
+  │       └─ bus.register_handler(GpioAlert)   (if gpio_alert.enabled)
   │
   ├─ 4. Creates MonitoringHub(bus, config)
   │       └─ for each SensorConfig:
@@ -190,7 +191,8 @@ EventBus::dispatch(SensorEvent::Reading)
    ├─► LogAlert              (stdout, optional)
    ├─► WebAlert               → WebState (in-memory, 120 points/sensor)
    ├─► SqliteHistoryHandler   → HistoryStore::insert()  (SQLite WAL, durable)
-   └─► MqttPublisher          → rpi/{sensor}/reading    (QoS=1, retain=true)
+   ├─► MqttPublisher          → rpi/{sensor}/reading    (QoS=1, retain=true)
+   └─► GpioAlert              → /sys/class/gpio/gpio{N}/value  (if gpio_alert.enabled)
 ```
 
 At daemon startup, `main.cpp` walks each configured sensor and primes `WebState`
@@ -204,9 +206,9 @@ via the MQTT history-on-demand protocol — see [persistence.md](persistence.md)
 
 | Need | Recommended approach |
 |---|---|
-| Email alert | New `IAlertHandler` class registered in `main()` |
+| Email / webhook alert | New `IAlertHandler` class registered in `main()` |
 | Persistent threshold-crossing log | Add an `events` table to `HistoryStore` and write on Exceeded/Recovered (next to readings) |
 | N consecutive errors → alert | Counter in `ThresholdMonitor::run()`, new enum in `SensorEvent::Type` |
-| Dynamic config reload (no restart) | `MonitoringHub::reload(Config)` with stop/restart of affected monitors |
+| Dynamic config reload (no restart) | `SIGUSR1` handler calling `MonitoringHub::reload(Config)` with stop/restart of affected monitors |
 | Rate-of-change alert | New monitor type implementing `ISensorReader` + derivative logic |
 | Cross-device shared history | A small cloud worker subscribing to MQTT and exposing REST (instead of the current Pi-local SQLite) |

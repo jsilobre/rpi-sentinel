@@ -33,6 +33,13 @@
         "service_instance_id": "rpi-sentinel-1",
         "export_interval_ms": 5000
     },
+    // GPIO output alert: drives a BCM pin HIGH on threshold breach, LOW on recovery.
+    // Uses the Linux sysfs interface — no external library needed.
+    // Set "enabled": true and choose the BCM pin number (e.g. 17 → physical pin 11).
+    "gpio_alert": {
+        "enabled": false,
+        "pin": 17
+    },
     // List of sensors to monitor
     "sensors": [
         {

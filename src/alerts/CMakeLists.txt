@@ -1,4 +1,5 @@
 add_library(alerts STATIC
+    GpioAlert.cpp
     LogAlert.cpp
 )
 

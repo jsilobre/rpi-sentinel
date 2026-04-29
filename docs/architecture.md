@@ -26,7 +26,8 @@
 │  MonitoringHub         │──────►│  IAlertHandler           │
 │  ThresholdMonitor [×N] │  via  │  LogAlert / WebAlert     │
 │  Config / MonitorConfig│  bus  │  MqttPublisher           │
-└────────┬───────────────┘       │  SqliteHistoryHandler    │
+└────────┬───────────────┘       │  GpioAlert               │
+         │                       │  SqliteHistoryHandler    │
          │                       └──────────┬───────────────┘
          │ read()                           │
          ▼                                 ▼
@@ -159,12 +160,18 @@ struct SensorConfig {
     float       threshold_crit = 80.0f;
 };
 
+struct GpioConfig {
+    bool enabled = false;
+    int  pin     = 17;    // BCM pin number
+};
+
 struct Config {
     std::vector<SensorConfig> sensors;     // one entry per sensor to monitor
     float                     hysteresis;
     std::chrono::milliseconds poll_interval;
     bool                      web_enabled;
     uint16_t                  web_port;
+    GpioConfig                gpio_alert;
 };
 ```
 
@@ -190,6 +197,7 @@ The `warn_active_` / `crit_active_` state is maintained across polling cycles wi
 |---|---|
 | `IAlertHandler.hpp` | Interface: `on_event(const SensorEvent&)`. |
 | `LogAlert.hpp/cpp` | Prints to stdout using `std::println` and `std::format`. |
+| `GpioAlert.hpp/cpp` | Drives a BCM GPIO pin HIGH on `ThresholdExceeded`, LOW on `ThresholdRecovered`. Uses the Linux sysfs interface (`/sys/class/gpio/`); no external library. Gracefully degrades when the pin is unavailable (e.g. in CI). Enabled via `gpio_alert` in `config.json`. |
 | `MqttPublisher.hpp/cpp` | Publishes events to an MQTT broker (HiveMQ Cloud or any broker). Enabled via `config.json`. Also subscribes to `rpi/history/req` and serves history-on-demand by querying `HistoryStore` (see [persistence.md](persistence.md)). |
 
 **Adding a new handler:**
@@ -245,9 +253,9 @@ The dashboard automatically creates one card per sensor with units (`°C`, `%`, 
    ├──────────────┤             │   WebAlert       │
    │ DHT11Reader  │             ├──────────────────┤
    ├──────────────┤             │   MqttPublisher  │
-   │CpuTempReader │             └──────────────────┘
-   ├──────────────┤
-   │SimulatedSensor│
+   │CpuTempReader │             ├──────────────────┤
+   ├──────────────┤             │   GpioAlert      │
+   │SimulatedSensor│            └──────────────────┘
    └───────────────┘
 
 ┌──────────────────────────────────────┐
