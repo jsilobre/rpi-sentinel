@@ -4,19 +4,23 @@ namespace rpi {
 
 void WebState::push_reading(const SensorEvent& event)
 {
-    std::lock_guard lock(mutex_);
-    auto& state = sensor_states_[event.sensor_id];
-    if (!state.has_reading) {
-        state.id     = event.sensor_id;
-        state.metric = event.metric;
-        sensor_order_.push_back(event.sensor_id);
+    {
+        std::lock_guard lock(mutex_);
+        auto& state = sensor_states_[event.sensor_id];
+        if (!state.has_reading) {
+            state.id     = event.sensor_id;
+            state.metric = event.metric;
+            sensor_order_.push_back(event.sensor_id);
+        }
+        state.has_reading   = true;
+        state.current_value = event.value;
+        state.history.push_back({event.value, event.timestamp});
+        if (state.history.size() > MAX_HISTORY) {
+            state.history.pop_front();
+        }
     }
-    state.has_reading   = true;
-    state.current_value = event.value;
-    state.history.push_back({event.value, event.timestamp});
-    if (state.history.size() > MAX_HISTORY) {
-        state.history.pop_front();
-    }
+    version_.fetch_add(1, std::memory_order_release);
+    cv_.notify_all();
 }
 
 void WebState::prime_history(const std::string& sensor_id, const std::string& metric,
@@ -45,16 +49,33 @@ void WebState::prime_history(const std::string& sensor_id, const std::string& me
 
 void WebState::push_alert(const SensorEvent& event)
 {
-    std::lock_guard lock(mutex_);
-    auto it = sensor_states_.find(event.sensor_id);
-    if (it != sensor_states_.end()) {
-        it->second.status = (event.type == SensorEvent::Type::ThresholdExceeded)
-            ? "alert" : "ok";
+    {
+        std::lock_guard lock(mutex_);
+        auto it = sensor_states_.find(event.sensor_id);
+        if (it != sensor_states_.end()) {
+            it->second.status = (event.type == SensorEvent::Type::ThresholdExceeded)
+                ? "alert" : "ok";
+        }
+        events_.push_front(event);
+        if (events_.size() > MAX_EVENTS) {
+            events_.pop_back();
+        }
     }
-    events_.push_front(event);
-    if (events_.size() > MAX_EVENTS) {
-        events_.pop_back();
-    }
+    version_.fetch_add(1, std::memory_order_release);
+    cv_.notify_all();
+}
+
+uint64_t WebState::version() const noexcept
+{
+    return version_.load(std::memory_order_acquire);
+}
+
+void WebState::wait_for_change(uint64_t last_version, std::chrono::milliseconds timeout) const
+{
+    std::unique_lock lock(mutex_);
+    cv_.wait_for(lock, timeout, [&] {
+        return version_.load(std::memory_order_relaxed) != last_version;
+    });
 }
 
 WebState::Snapshot WebState::snapshot() const

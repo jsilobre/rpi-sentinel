@@ -4,7 +4,10 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>RPi Sentinel</title>
+  <script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8/hammer.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3.0.1/dist/chartjs-plugin-annotation.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/mqtt@5.10.1/dist/mqtt.min.js"></script>
   <style>
     *{box-sizing:border-box;margin:0;padding:0}
@@ -122,6 +125,19 @@
     .save-feedback{font-size:10.5px;min-width:42px;text-align:right}
     .save-ok{color:var(--ok-fg)}.save-err{color:var(--err-fg)}
 
+    /* Time-window selector */
+    .time-bar{display:flex;gap:6px;align-items:center;padding:8px 20px;border-bottom:1px solid var(--border);background:var(--surface);flex-wrap:wrap}
+    .time-bar span{font-size:11px;color:var(--muted);margin-right:2px}
+    .time-btn{background:var(--surface-2);color:var(--muted);border:1px solid var(--border);
+      border-radius:6px;padding:3px 11px;font-size:11.5px;font-weight:600;cursor:pointer}
+    .time-btn:hover{color:var(--text);border-color:var(--muted-2)}
+    .time-btn.active{background:var(--accent);color:#fff;border-color:var(--accent)}
+    /* Reset zoom button inside sensor cards */
+    .reset-zoom-btn{display:none;background:var(--surface-2);color:var(--muted);
+      border:1px solid var(--border);border-radius:4px;padding:2px 7px;font-size:10px;cursor:pointer;margin-left:auto}
+    .reset-zoom-btn:hover{color:var(--text)}
+    /* Chart hint */
+    .chart-hint{font-size:10px;color:var(--muted-2);margin-top:3px;text-align:right}
     /* Scrollbar */
     .event-list::-webkit-scrollbar,.modal-body::-webkit-scrollbar{width:8px}
     .event-list::-webkit-scrollbar-thumb,.modal-body::-webkit-scrollbar-thumb{background:var(--border);border-radius:8px}
@@ -136,6 +152,15 @@
     <button class="icon-btn" id="config-btn" title="Configure thresholds">⚙ Config</button>
     <button class="icon-btn" id="theme-btn" title="Toggle theme">☾</button>
   </header>
+
+  <div class="time-bar">
+    <span>Window:</span>
+    <button class="time-btn active" data-w="live" onclick="setWindow('live')">Live</button>
+    <button class="time-btn" data-w="1h"  onclick="setWindow('1h')">1h</button>
+    <button class="time-btn" data-w="6h"  onclick="setWindow('6h')">6h</button>
+    <button class="time-btn" data-w="24h" onclick="setWindow('24h')">24h</button>
+    <button class="time-btn" data-w="7d"  onclick="setWindow('7d')">7d</button>
+  </div>
 
   <main>
     <section>
@@ -182,15 +207,17 @@ const TOPIC_PREFIX = 'rpi';
 const MAX_HISTORY = 120;
 const MAX_EVENTS  = 50;
 
-const charts           = {};
-const history          = {};
-const events           = [];
-const sensorThresholds = {};
-const knownSensorIds   = new Set();
-let   lastRpiStatus    = null; // 'online' | 'offline' — last confirmed state from broker
-let   firstConnect     = true;
-const pendingHydrations = {};   // request_id → sensorId
-const hydratedSensors   = new Set();  // sensors already hydrated this session
+const charts               = {};
+const history              = {};
+const events               = [];
+const sensorThresholds     = {};
+const knownSensorIds       = new Set();
+let   lastRpiStatus        = null;
+let   firstConnect         = true;
+const pendingHydrations    = {};  // request_id → sensorId (initial load)
+const pendingWindowHydrations = {}; // request_id → sensorId (window switch)
+const hydratedSensors      = new Set();
+let   currentWindow        = 'live';
 
 const palette = [
   { border: '#0ea5e9', bg: 'rgba(14,165,233,0.10)' },
@@ -202,8 +229,40 @@ const palette = [
 
 function domId(sensorId) { return sensorId.replace(/[^a-zA-Z0-9_-]/g, '_'); }
 
-function fmt(iso) {
-  return new Date(iso).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', second:'2-digit'});
+function fmt(isoOrMs) {
+  const d = typeof isoOrMs === 'number' ? new Date(isoOrMs) : new Date(isoOrMs);
+  if (currentWindow === '24h' || currentWindow === '7d')
+    return d.toLocaleDateString('en', {month:'short', day:'numeric'}) + ' ' +
+           d.toLocaleTimeString('en', {hour:'2-digit', minute:'2-digit'});
+  return d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', second:'2-digit'});
+}
+
+function updateAnnotations(sensorId) {
+  const chart = charts[sensorId];
+  if (!chart) return;
+  const t = sensorThresholds[sensorId];
+  if (!t) { chart.options.plugins.annotation.annotations = {}; chart.update('none'); return; }
+  chart.options.plugins.annotation.annotations = {
+    warnLine: {
+      type:'line', yMin:t.warn, yMax:t.warn,
+      borderColor:'rgba(245,158,11,0.55)', borderWidth:1, borderDash:[4,4],
+      label:{display:true,content:'Warn',position:'end',
+             backgroundColor:'rgba(245,158,11,0.12)',color:cssVar('--warn-fg'),font:{size:10}}
+    },
+    critLine: {
+      type:'line', yMin:t.crit, yMax:t.crit,
+      borderColor:'rgba(239,68,68,0.55)', borderWidth:1, borderDash:[4,4],
+      label:{display:true,content:'Crit',position:'end',
+             backgroundColor:'rgba(239,68,68,0.12)',color:cssVar('--err-fg'),font:{size:10}}
+    }
+  };
+  chart.update('none');
+}
+
+function resetZoom(sensorId) {
+  if (charts[sensorId]) charts[sensorId].resetZoom();
+  const btn = document.getElementById('reset-zoom-' + domId(sensorId));
+  if (btn) btn.style.display = 'none';
 }
 
 function setConnStatus(state) {
@@ -232,6 +291,7 @@ function ensureCard(sensorId, metric) {
   if (ph) ph.remove();
 
   const col = palette[Object.keys(charts).length % palette.length];
+  const jsId = JSON.stringify(sensorId);
   const card = document.createElement('div');
   card.id        = 'card-' + sid;
   card.className = 'card';
@@ -240,6 +300,7 @@ function ensureCard(sensorId, metric) {
       <span class="sensor-name">${sensorId}</span>
       <span class="metric-tag">${metric}</span>
       <span class="status ok" id="status-${sid}">--</span>
+      <button class="reset-zoom-btn" id="reset-zoom-${sid}" onclick="resetZoom(${jsId})">&#8635; Reset</button>
     </div>
     <div class="sensor-row">
       <span class="sensor-value" id="val-${sid}">--</span>
@@ -249,6 +310,7 @@ function ensureCard(sensorId, metric) {
       <span>min <b>--</b></span><span>avg <b>--</b></span><span>max <b>--</b></span>
     </div>
     <div class="chart-wrap"><canvas id="chart-${sid}"></canvas></div>
+    <div class="chart-hint">Scroll to zoom &middot; Drag to pan</div>
   `;
   document.getElementById('sensors-grid').appendChild(card);
   document.getElementById('sensor-count').textContent = Object.keys(charts).length + 1;
@@ -275,7 +337,18 @@ function ensureCard(sensorId, metric) {
       interaction: { intersect: false, mode: 'index' },
       plugins: {
         legend: { display: false },
-        tooltip: { callbacks: { label: ctx => ctx.parsed.y.toFixed(2) } }
+        tooltip: { callbacks: { label: ctx => ctx.parsed.y.toFixed(2) } },
+        zoom: {
+          zoom: {
+            wheel: { enabled: true }, pinch: { enabled: true }, mode: 'x',
+            onZoomComplete: () => {
+              const btn = document.getElementById('reset-zoom-' + domId(sensorId));
+              if (btn) btn.style.display = 'inline-block';
+            }
+          },
+          pan: { enabled: true, mode: 'x' }
+        },
+        annotation: { annotations: {} }
       },
       scales: {
         x: { ticks: { color:cssVar('--muted-2'), maxTicksLimit:5, maxRotation:0, font:{size:10} }, grid: { color:cssVar('--grid') } },
@@ -284,6 +357,7 @@ function ensureCard(sensorId, metric) {
     }
   });
 
+  updateAnnotations(sensorId);
   requestHydration(sensorId);
 }
 
@@ -376,10 +450,12 @@ function handleReading(sensorId, data) {
   const s = document.getElementById('status-' + sid);
   if (s.textContent === '--') { s.textContent = 'OK'; s.className = 'status ok'; }
 
-  const chart = charts[sensorId];
-  chart.data.labels           = history[sensorId].map(h => fmt(h.timestamp));
-  chart.data.datasets[0].data = history[sensorId].map(h => h.value);
-  chart.update('none');
+  if (currentWindow === 'live') {
+    const chart = charts[sensorId];
+    chart.data.labels           = history[sensorId].map(h => fmt(h.timestamp));
+    chart.data.datasets[0].data = history[sensorId].map(h => h.value);
+    chart.update('none');
+  }
 
   updateStats(sensorId);
   document.getElementById('updated').textContent = 'Updated ' + new Date().toLocaleTimeString();
@@ -504,7 +580,13 @@ client.on('message', (topic, message) => {
   }
 
   if (topic.startsWith(`${TOPIC_PREFIX}/history/resp/`)) {
-    const reqId    = topic.slice((`${TOPIC_PREFIX}/history/resp/`).length);
+    const reqId = topic.slice((`${TOPIC_PREFIX}/history/resp/`).length);
+    if (pendingWindowHydrations[reqId]) {
+      const sensorId = pendingWindowHydrations[reqId];
+      delete pendingWindowHydrations[reqId];
+      if (Array.isArray(data.points)) applyWindowHydration(sensorId, data.points);
+      return;
+    }
     const sensorId = pendingHydrations[reqId];
     if (!sensorId) return;
     delete pendingHydrations[reqId];
@@ -528,6 +610,8 @@ client.on('message', (topic, message) => {
         delete history[sensorId];
         const cardEl = document.getElementById('card-' + domId(sensorId));
         if (cardEl) cardEl.remove();
+      } else {
+        updateAnnotations(sensorId);
       }
     }
 
@@ -555,6 +639,56 @@ client.on('message', (topic, message) => {
   if (kind === 'reading') handleReading(sensorId, data);
   else if (kind === 'alert') handleAlert(sensorId, data);
 });
+
+function applyWindowHydration(sensorId, points) {
+  if (!charts[sensorId]) return;
+  const chart = charts[sensorId];
+  chart.data.labels           = points.map(p => fmt(p.ts));
+  chart.data.datasets[0].data = points.map(p => p.value);
+  chart.resetZoom();
+  chart.update('none');
+  const btn = document.getElementById('reset-zoom-' + domId(sensorId));
+  if (btn) btn.style.display = 'none';
+}
+
+function setWindow(w) {
+  currentWindow = w;
+  document.querySelectorAll('.time-btn').forEach(b =>
+    b.classList.toggle('active', b.dataset.w === w));
+
+  for (const id of Object.keys(charts)) {
+    charts[id].resetZoom();
+    const btn = document.getElementById('reset-zoom-' + domId(id));
+    if (btn) btn.style.display = 'none';
+  }
+
+  if (w === 'live') {
+    for (const sensorId of Object.keys(charts)) {
+      const h     = history[sensorId] || [];
+      const chart = charts[sensorId];
+      chart.data.labels           = h.map(p => fmt(p.timestamp));
+      chart.data.datasets[0].data = h.map(p => p.value);
+      chart.update('none');
+    }
+    return;
+  }
+
+  if (!client || !client.connected) return;
+  const windowMs = {'1h':3_600_000,'6h':21_600_000,'24h':86_400_000,'7d':604_800_000}[w];
+  const sinceTs  = Date.now() - windowMs;
+
+  for (const sensorId of Object.keys(charts)) {
+    const reqId = (crypto.randomUUID && crypto.randomUUID())
+      || (Date.now().toString(36) + Math.random().toString(36).slice(2));
+    pendingWindowHydrations[reqId] = sensorId;
+    client.publish(
+      `${TOPIC_PREFIX}/history/req`,
+      JSON.stringify({ request_id: reqId, sensor_id: sensorId, limit: 500, since_ts: sinceTs }),
+      { qos: 1, retain: false }
+    );
+    setTimeout(() => { delete pendingWindowHydrations[reqId]; }, 10_000);
+  }
+}
 
 function renderConfigPanel() {
   const container = document.getElementById('config-rows');
@@ -587,7 +721,11 @@ function saveThreshold(sensorId, sid) {
     { qos: 1, retain: false },
     err => {
       if (err) { fb.textContent = 'Error'; fb.className = 'save-feedback save-err'; }
-      else     { fb.textContent = 'Sent';  fb.className = 'save-feedback save-ok'; }
+      else {
+        fb.textContent = 'Sent'; fb.className = 'save-feedback save-ok';
+        sensorThresholds[sensorId] = { warn, crit };
+        updateAnnotations(sensorId);
+      }
       setTimeout(() => { fb.textContent = ''; }, 3000);
     }
   );
