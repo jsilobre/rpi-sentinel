@@ -161,8 +161,15 @@ SensorConfig::type
    │                               ├─ "motion"      → square wave, 5 s on / 20 s off
    │                               └─ (other)       → sinusoidal 40 ±30, period 60 s
    │
-   └─ SensorType::DS18B20    →  DS18B20Reader(device_path, id, metric)
-                                  └─ reads /sys/bus/w1/devices/<id>/temperature
+   ├─ SensorType::DS18B20    →  DS18B20Reader(device_path, id, metric)
+   │                               └─ reads /sys/bus/w1/devices/<id>/temperature
+   │
+   ├─ SensorType::DHT11      →  DHT11Reader(device_path, id, metric)
+   │                               └─ reads via Linux IIO driver
+   │
+   └─ SensorType::CpuTemp    →  CpuTempReader(id, thermal_path)
+                                  └─ reads /sys/class/thermal/thermal_zone0/temp
+                                  └─ device_path overrides the thermal zone (optional)
 ```
 
 To add a new sensor to a running config: add an entry to the `sensors` array in `config.json`
