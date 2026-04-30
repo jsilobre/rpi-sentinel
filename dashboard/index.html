@@ -150,6 +150,7 @@
     <div class="conn"><span class="dot" id="conn-dot"></span><span id="conn-label">Connecting…</span></div>
     <div class="spacer"></div>
     <span class="updated" id="updated"></span>
+    <button class="icon-btn" id="refresh-btn" title="Force immediate sensor poll">↻ Refresh</button>
     <button class="icon-btn" id="config-btn" title="Configure thresholds">⚙ Config</button>
     <button class="icon-btn" id="theme-btn" title="Toggle theme">☾</button>
   </header>
@@ -494,6 +495,19 @@ function renderEvents() {
       <span class="det">${e.metric}=${e.value.toFixed(1)} · threshold ${e.threshold.toFixed(1)}</span>
     </li>`).join('');
 }
+
+// ── Refresh (force-poll) ───────────────────────────────────────────────────────
+document.getElementById('refresh-btn').addEventListener('click', () => {
+  const btn = document.getElementById('refresh-btn');
+  if (!client || !client.connected) return;
+  btn.disabled = true;
+  btn.textContent = '↻ Refreshing…';
+  client.publish(`${TOPIC_PREFIX}/cmd/refresh`, '{}', { qos: 1, retain: false });
+  setTimeout(() => {
+    btn.disabled = false;
+    btn.textContent = '↻ Refresh';
+  }, 2000);
+});
 
 // ── Theme toggle ───────────────────────────────────────────────────────────────
 function applyTheme(t) {
