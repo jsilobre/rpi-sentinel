@@ -197,6 +197,7 @@ void MqttPublisher::handle_message(const struct mosquitto_message* msg)
     if (topic == cmd_refresh_topic_) {
         std::println("[MqttPublisher] Force-poll requested via MQTT");
         if (force_poller_) force_poller_();
+        publish(status_topic_, R"({"status":"online"})", /*retain=*/true);
         return;
     }
 

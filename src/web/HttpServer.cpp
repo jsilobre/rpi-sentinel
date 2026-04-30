@@ -410,11 +410,18 @@ function startSSE() {
 
 async function triggerRefresh() {
   const btn = document.getElementById('refresh-btn');
+  const dot = document.getElementById('conn-dot');
   btn.disabled = true;
   btn.textContent = '↻ Refreshing…';
   try {
     await fetch('/api/refresh', { method: 'POST' });
-  } catch(e) { console.warn('refresh error', e); }
+    dot.className = 'dot live';
+    dot.style.background = '';
+  } catch(e) {
+    dot.className = 'dot';
+    dot.style.background = '#ef4444';
+    console.warn('refresh error', e);
+  }
   setTimeout(() => {
     btn.disabled = false;
     btn.textContent = '↻ Refresh';
