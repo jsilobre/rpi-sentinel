@@ -37,6 +37,10 @@ static constexpr std::string_view DASHBOARD_HTML = R"HTML(<!DOCTYPE html>
     .dot.live{animation:pulse 2s infinite}
     @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
 
+    .refresh-btn{background:#1e293b;color:#94a3b8;border:1px solid #334155;border-radius:6px;
+      padding:4px 14px;font-size:.75rem;font-weight:600;cursor:pointer;transition:all .15s;margin-left:auto}
+    .refresh-btn:hover{border-color:#475569;color:#e2e8f0}
+    .refresh-btn:disabled{opacity:.5;cursor:default}
     .time-bar{display:flex;gap:6px;align-items:center;margin-bottom:16px;flex-wrap:wrap}
     .time-bar span{font-size:.7rem;color:#475569;margin-right:2px}
     .time-btn{background:#1e293b;color:#64748b;border:1px solid #334155;border-radius:6px;
@@ -89,6 +93,7 @@ static constexpr std::string_view DASHBOARD_HTML = R"HTML(<!DOCTYPE html>
   <header>
     <div class="dot live" id="conn-dot"></div>
     <h1>RPi Sentinel</h1>
+    <button class="refresh-btn" id="refresh-btn" onclick="triggerRefresh()">&#8635; Refresh</button>
   </header>
 
   <div class="time-bar">
@@ -403,6 +408,19 @@ function startSSE() {
   };
 }
 
+async function triggerRefresh() {
+  const btn = document.getElementById('refresh-btn');
+  btn.disabled = true;
+  btn.textContent = '↻ Refreshing…';
+  try {
+    await fetch('/api/refresh', { method: 'POST' });
+  } catch(e) { console.warn('refresh error', e); }
+  setTimeout(() => {
+    btn.disabled = false;
+    btn.textContent = '↻ Refresh';
+  }, 1000);
+}
+
 startSSE();
 loadConfig();
 </script>
@@ -426,12 +444,14 @@ static std::string format_iso8601(std::chrono::system_clock::time_point tp)
 
 HttpServer::HttpServer(uint16_t port, const WebState& state,
                        std::shared_ptr<const HistoryStore> history_store,
-                       ConfigGetter config_getter, ConfigUpdater config_updater)
+                       ConfigGetter config_getter, ConfigUpdater config_updater,
+                       ForcePoller force_poller)
     : state_(state)
     , port_(port)
     , history_store_(std::move(history_store))
     , config_getter_(std::move(config_getter))
     , config_updater_(std::move(config_updater))
+    , force_poller_(std::move(force_poller))
     , server_(std::make_unique<httplib::Server>())
 {}
 
@@ -449,6 +469,13 @@ void HttpServer::start()
         auto snap = state_.snapshot();
         res.set_content(build_state_json(snap), "application/json");
         res.set_header("Access-Control-Allow-Origin", "*");
+    });
+
+    // ── On-demand poll trigger ────────────────────────────────────────────────
+    server_->Post("/api/refresh", [this](const httplib::Request&, httplib::Response& res) {
+        res.set_header("Access-Control-Allow-Origin", "*");
+        if (force_poller_) force_poller_();
+        res.set_content(R"({"status":"ok"})", "application/json");
     });
 
     // ── SSE push stream ───────────────────────────────────────────────────────

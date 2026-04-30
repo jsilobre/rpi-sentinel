@@ -154,7 +154,8 @@ int main(int argc, char* argv[])
             web_state,
             history_store,
             [&hub]() { return hub.build_config_json(); },
-            on_config_change);
+            on_config_change,
+            [&hub]() { hub.force_poll_all(); });
         http_server->start();
     }
 

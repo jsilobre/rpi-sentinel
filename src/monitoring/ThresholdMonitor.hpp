@@ -4,6 +4,8 @@
 #include "../sensors/ISensorReader.hpp"
 #include <atomic>
 #include <chrono>
+#include <condition_variable>
+#include <mutex>
 #include <thread>
 
 namespace rpi {
@@ -22,6 +24,7 @@ public:
 
     void start();
     void stop();
+    void force_poll();
 
     void  update_thresholds(float warn, float crit);
     float get_threshold_warn() const { return threshold_warn_.load(); }
@@ -30,12 +33,15 @@ public:
 private:
     void run(std::stop_token stop);
 
-    ISensorReader&      sensor_;
-    EventBus&           bus_;
-    MonitorConfig       config_;
-    std::atomic<float>  threshold_warn_;
-    std::atomic<float>  threshold_crit_;
-    std::jthread        thread_;
+    ISensorReader&              sensor_;
+    EventBus&                   bus_;
+    MonitorConfig               config_;
+    std::atomic<float>          threshold_warn_;
+    std::atomic<float>          threshold_crit_;
+    std::atomic<bool>           force_poll_flag_{false};
+    std::mutex                  sleep_mtx_;
+    std::condition_variable_any sleep_cv_;
+    std::jthread                thread_;
 
     bool warn_active_ = false;
     bool crit_active_ = false;

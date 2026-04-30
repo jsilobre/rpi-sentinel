@@ -88,6 +88,11 @@ std::string MonitoringHub::build_config_json() const
     return nlohmann::json{{"sensors", arr}}.dump();
 }
 
+void MonitoringHub::force_poll_all()
+{
+    for (auto& m : monitors_) m->force_poll();
+}
+
 void MonitoringHub::start()
 {
     for (auto& m : monitors_) m->start();

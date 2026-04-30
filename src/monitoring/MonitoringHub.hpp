@@ -19,6 +19,7 @@ public:
     void stop();
 
     void        update_thresholds(const std::string& sensor_id, float warn, float crit);
+    void        force_poll_all();
     Config      get_config_snapshot() const;
     std::string build_config_json() const;
 
