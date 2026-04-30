@@ -22,6 +22,7 @@ static auto parse_sensor_config(const nlohmann::json& j) -> std::expected<Sensor
     else if (t == "simulated") sc.type = SensorType::Simulated;
     else if (t == "dht11")     sc.type = SensorType::DHT11;
     else if (t == "cpu_temp")  sc.type = SensorType::CpuTemp;
+    else if (t == "sgp30")     sc.type = SensorType::SGP30;
     else return std::unexpected(std::format("sensor '{}': unknown type '{}'", sc.id, t));
 
     if (j.contains("device_path"))    sc.device_path    = j["device_path"].get<std::string>();
@@ -137,6 +138,7 @@ auto save_config(const std::filesystem::path& path, const Config& config) -> std
             case SensorType::DHT11:     return "dht11";
             case SensorType::Simulated: return "simulated";
             case SensorType::CpuTemp:   return "cpu_temp";
+            case SensorType::SGP30:     return "sgp30";
         }
         return "simulated";
     };

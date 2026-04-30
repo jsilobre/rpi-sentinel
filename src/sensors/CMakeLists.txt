@@ -2,6 +2,7 @@ add_library(sensors STATIC
     CpuTempReader.cpp
     DS18B20Reader.cpp
     DHT11Reader.cpp
+    SGP30Reader.cpp
     SimulatedSensor.cpp
 )
 

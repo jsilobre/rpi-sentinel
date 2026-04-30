@@ -57,6 +57,8 @@ auto SimulatedSensor::make_for_metric(std::string_view metric) -> Generator
     if (metric == "humidity")    return make_sinusoidal(55.0f, 20.0f, 180.0f);
     if (metric == "pressure")    return make_sinusoidal(1013.0f, 5.0f, 300.0f);
     if (metric == "motion")      return make_motion();
+    if (metric == "eco2")        return make_sinusoidal(600.0f, 200.0f, 300.0f);
+    if (metric == "tvoc")        return make_sinusoidal(80.0f, 60.0f, 240.0f);
     return make_sinusoidal(40.0f, 30.0f, 60.0f);
 }
 
