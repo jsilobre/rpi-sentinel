@@ -114,6 +114,7 @@ void MqttPublisher::connect()
     config_topic_set_     = config_.topic_prefix + "/config/set";
     history_req_topic_    = config_.topic_prefix + "/history/req";
     history_resp_prefix_  = config_.topic_prefix + "/history/resp/";
+    cmd_refresh_topic_    = config_.topic_prefix + "/cmd/refresh";
 
     mosquitto_loop_start(mosq_);
     std::println("[MqttPublisher] Connecting to {}:{}…", addr.host, addr.port);
@@ -149,6 +150,7 @@ void MqttPublisher::handle_connect(int rc)
     mosquitto_subscribe(mosq_, nullptr, config_topic_set_.c_str(), /*qos=*/1);
     mosquitto_subscribe(mosq_, nullptr, history_req_topic_.c_str(), /*qos=*/1);
     mosquitto_subscribe(mosq_, nullptr, status_topic_.c_str(), /*qos=*/1);
+    mosquitto_subscribe(mosq_, nullptr, cmd_refresh_topic_.c_str(), /*qos=*/1);
     publish(status_topic_, R"({"status":"online"})", /*retain=*/true);
     std::println("[MqttPublisher] Connected and online");
 }
@@ -156,6 +158,11 @@ void MqttPublisher::handle_connect(int rc)
 void MqttPublisher::set_threshold_callback(ThresholdCallback cb)
 {
     threshold_cb_ = std::move(cb);
+}
+
+void MqttPublisher::set_force_poller(ForcePoller cb)
+{
+    force_poller_ = std::move(cb);
 }
 
 void MqttPublisher::set_history_store(std::shared_ptr<HistoryStore> store)
@@ -184,6 +191,12 @@ void MqttPublisher::handle_message(const struct mosquitto_message* msg)
 
     if (topic == history_req_topic_) {
         handle_history_request(payload);
+        return;
+    }
+
+    if (topic == cmd_refresh_topic_) {
+        std::println("[MqttPublisher] Force-poll requested via MQTT");
+        if (force_poller_) force_poller_();
         return;
     }
 

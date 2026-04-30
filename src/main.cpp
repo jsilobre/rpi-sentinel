@@ -141,6 +141,7 @@ int main(int argc, char* argv[])
 #ifdef ENABLE_MQTT
     if (mqtt_pub) {
         mqtt_pub->set_threshold_callback(on_config_change);
+        mqtt_pub->set_force_poller([&hub]() { hub.force_poll_all(); });
         mqtt_pub->publish_config(hub.build_config_json());
     }
 #endif
