@@ -60,10 +60,13 @@
     .count-pill{background:var(--surface);border:1px solid var(--border);color:var(--muted);
       border-radius:9999px;padding:1px 7px;font-size:10px;letter-spacing:0;text-transform:none}
 
-    .sensors-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(360px,1fr));gap:12px}
+    .sensors-grid{position:relative;min-height:300px}
     .card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px 14px;box-shadow:var(--shadow)}
 
-    .sensor-head{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+    .sensor-head{display:flex;align-items:center;gap:8px;margin-bottom:6px;cursor:move;user-select:none}
+    .sensor-head button{cursor:pointer}
+    #placeholder-card{position:static!important;width:auto!important;height:auto!important;resize:none!important}
+    #placeholder-card .placeholder{cursor:default}
     .sensor-name{font-size:12.5px;font-weight:600;color:var(--text)}
     .metric-tag{background:var(--surface-2);color:var(--muted);border:1px solid var(--border);
       border-radius:4px;padding:1px 6px;font-size:10px;font-weight:500;font-family:ui-monospace,monospace}
@@ -80,7 +83,7 @@
     .stats{display:flex;gap:14px;margin:4px 0 8px;font-size:10.5px;color:var(--muted);font-variant-numeric:tabular-nums}
     .stats b{color:var(--text);font-weight:600}
 
-    .sensors-grid .card{display:flex;flex-direction:column;resize:vertical;overflow:hidden;min-height:200px}
+    .sensors-grid .card{position:absolute;display:flex;flex-direction:column;resize:both;overflow:hidden;min-height:200px;min-width:280px}
     .chart-wrap{flex:1;min-height:60px}
     canvas{display:block;width:100%!important;height:100%!important}
 
@@ -284,6 +287,99 @@ function cssVar(name) {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 }
 
+// ── Free-form layout (drag to move, resize from corner) ───────────────────────
+const LAYOUT_KEY      = 'rpi-sentinel-layout';
+const DEFAULT_CARD_W  = 380;
+const DEFAULT_CARD_H  = 300;
+const LAYOUT_GAP      = 12;
+
+function loadLayout() {
+  try { return JSON.parse(localStorage.getItem(LAYOUT_KEY)) || {}; }
+  catch { return {}; }
+}
+
+function saveLayout() {
+  const layout = loadLayout();
+  document.querySelectorAll('.card[data-sensor-id]').forEach(c => {
+    layout[c.dataset.sensorId] = {
+      left:   c.offsetLeft,
+      top:    c.offsetTop,
+      width:  c.offsetWidth,
+      height: c.offsetHeight,
+    };
+  });
+  try { localStorage.setItem(LAYOUT_KEY, JSON.stringify(layout)); } catch {}
+}
+
+function placeCard(card, sensorId, existingCount) {
+  const saved = loadLayout()[sensorId];
+  if (saved) {
+    card.style.left   = saved.left   + 'px';
+    card.style.top    = saved.top    + 'px';
+    card.style.width  = saved.width  + 'px';
+    card.style.height = saved.height + 'px';
+    return;
+  }
+  const grid = card.parentElement;
+  const containerWidth = grid.clientWidth || 1200;
+  const cols = Math.max(1, Math.floor((containerWidth + LAYOUT_GAP) / (DEFAULT_CARD_W + LAYOUT_GAP)));
+  const col  = existingCount % cols;
+  const row  = Math.floor(existingCount / cols);
+  card.style.left   = (col * (DEFAULT_CARD_W + LAYOUT_GAP)) + 'px';
+  card.style.top    = (row * (DEFAULT_CARD_H + LAYOUT_GAP)) + 'px';
+  card.style.width  = DEFAULT_CARD_W + 'px';
+  card.style.height = DEFAULT_CARD_H + 'px';
+}
+
+function updateGridHeight() {
+  const grid = document.getElementById('sensors-grid');
+  let maxBottom = 200;
+  grid.querySelectorAll('.card[data-sensor-id]').forEach(c => {
+    const bottom = c.offsetTop + c.offsetHeight;
+    if (bottom > maxBottom) maxBottom = bottom;
+  });
+  grid.style.minHeight = (maxBottom + LAYOUT_GAP) + 'px';
+}
+
+function makeDraggable(card) {
+  const head = card.querySelector('.sensor-head');
+  if (!head) return;
+  head.addEventListener('mousedown', e => {
+    if (e.button !== 0) return;
+    if (e.target.closest('button, input, select, a, label')) return;
+    const grid     = card.parentElement;
+    const gridRect = grid.getBoundingClientRect();
+    const cardRect = card.getBoundingClientRect();
+    const offsetX  = e.clientX - cardRect.left;
+    const offsetY  = e.clientY - cardRect.top;
+    const prevUserSelect = document.body.style.userSelect;
+    document.body.style.userSelect = 'none';
+
+    function onMove(ev) {
+      const x = ev.clientX - gridRect.left - offsetX;
+      const y = ev.clientY - gridRect.top  - offsetY;
+      card.style.left = Math.max(0, x) + 'px';
+      card.style.top  = Math.max(0, y) + 'px';
+      updateGridHeight();
+    }
+    function onUp() {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      document.body.style.userSelect = prevUserSelect;
+      saveLayout();
+    }
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+    e.preventDefault();
+  });
+}
+
+let _layoutSaveTimer = null;
+const cardResizeObserver = new ResizeObserver(() => {
+  clearTimeout(_layoutSaveTimer);
+  _layoutSaveTimer = setTimeout(() => { saveLayout(); updateGridHeight(); }, 150);
+});
+
 function ensureCard(sensorId, metric) {
   if (knownSensorIds.size > 0 && !knownSensorIds.has(sensorId)) return;
   const sid = domId(sensorId);
@@ -297,6 +393,7 @@ function ensureCard(sensorId, metric) {
   const card = document.createElement('div');
   card.id        = 'card-' + sid;
   card.className = 'card';
+  card.dataset.sensorId = sensorId;
   card.innerHTML = `
     <div class="sensor-head">
       <span class="sensor-name">${sensorId}</span>
@@ -312,9 +409,15 @@ function ensureCard(sensorId, metric) {
       <span>min <b>--</b></span><span>avg <b>--</b></span><span>max <b>--</b></span>
     </div>
     <div class="chart-wrap"><canvas id="chart-${sid}"></canvas></div>
-    <div class="chart-hint">Scroll to zoom &middot; Drag to pan &middot; Drag corner to resize</div>
+    <div class="chart-hint">Scroll to zoom &middot; Drag chart to pan &middot; Drag header to move &middot; Drag corner to resize</div>
   `;
-  document.getElementById('sensors-grid').appendChild(card);
+  const grid = document.getElementById('sensors-grid');
+  const existingBefore = grid.querySelectorAll('.card[data-sensor-id]').length;
+  grid.appendChild(card);
+  placeCard(card, sensorId, existingBefore);
+  makeDraggable(card);
+  cardResizeObserver.observe(card);
+  updateGridHeight();
   document.getElementById('sensor-count').textContent = Object.keys(charts).length + 1;
 
   charts[sensorId] = new Chart(
@@ -624,11 +727,15 @@ client.on('message', (topic, message) => {
         delete charts[sensorId];
         delete history[sensorId];
         const cardEl = document.getElementById('card-' + domId(sensorId));
-        if (cardEl) cardEl.remove();
+        if (cardEl) {
+          cardResizeObserver.unobserve(cardEl);
+          cardEl.remove();
+        }
       } else {
         updateAnnotations(sensorId);
       }
     }
+    updateGridHeight();
 
     const grid = document.getElementById('sensors-grid');
     if (!grid.querySelector('.card')) {
