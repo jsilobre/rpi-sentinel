@@ -63,7 +63,7 @@
     .sensors-grid{position:relative;min-height:300px}
     .card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px 14px;box-shadow:var(--shadow)}
 
-    .sensor-head{display:flex;align-items:center;gap:8px;margin-bottom:6px;cursor:move;user-select:none}
+    .sensor-head{display:flex;align-items:center;gap:8px;margin-bottom:6px;cursor:move;user-select:none;touch-action:none}
     .sensor-head button{cursor:pointer}
     #placeholder-card{position:static!important;width:auto!important;height:auto!important;resize:none!important}
     #placeholder-card .placeholder{cursor:default}
@@ -153,18 +153,18 @@
     <div class="conn"><span class="dot" id="conn-dot"></span><span id="conn-label">Connecting…</span></div>
     <div class="spacer"></div>
     <span class="updated" id="updated"></span>
-    <button class="icon-btn" id="refresh-btn" title="Force immediate sensor poll">↻ Refresh</button>
+    <button class="icon-btn" id="refresh-btn" title="Force immediate sensor poll" disabled>↻ Refresh</button>
     <button class="icon-btn" id="config-btn" title="Configure thresholds">⚙ Config</button>
     <button class="icon-btn" id="theme-btn" title="Toggle theme">☾</button>
   </header>
 
-  <div class="time-bar">
+  <div class="time-bar" id="time-bar">
     <span>Window:</span>
-    <button class="time-btn active" data-w="live" onclick="setWindow('live')">Live</button>
-    <button class="time-btn" data-w="1h"  onclick="setWindow('1h')">1h</button>
-    <button class="time-btn" data-w="6h"  onclick="setWindow('6h')">6h</button>
-    <button class="time-btn" data-w="24h" onclick="setWindow('24h')">24h</button>
-    <button class="time-btn" data-w="7d"  onclick="setWindow('7d')">7d</button>
+    <button class="time-btn" data-w="live" type="button">Live</button>
+    <button class="time-btn" data-w="1h"   type="button">1h</button>
+    <button class="time-btn" data-w="6h"   type="button">6h</button>
+    <button class="time-btn" data-w="24h"  type="button">24h</button>
+    <button class="time-btn" data-w="7d"   type="button">7d</button>
   </div>
 
   <main>
@@ -220,9 +220,12 @@ const knownSensorIds       = new Set();
 let   lastRpiStatus        = null;
 let   firstConnect         = true;
 const pendingHydrations    = {};  // request_id → sensorId (initial load)
+const pendingHydrationSet  = new Set(); // sensorIds with an in-flight initial hydration
 const pendingWindowHydrations = {}; // request_id → sensorId (window switch)
 const hydratedSensors      = new Set();
-let   currentWindow        = 'live';
+const pendingSaves         = {};  // sensorId → { warn, crit, fb, sid, timer }
+const WINDOW_KEY           = 'rpi-sentinel-window';
+let   currentWindow        = localStorage.getItem(WINDOW_KEY) || 'live';
 
 const palette = [
   { border: '#0ea5e9', bg: 'rgba(14,165,233,0.10)' },
@@ -234,8 +237,13 @@ const palette = [
 
 function domId(sensorId) { return sensorId.replace(/[^a-zA-Z0-9_-]/g, '_'); }
 
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c =>
+    ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
+}
+
 function fmt(isoOrMs) {
-  const d = typeof isoOrMs === 'number' ? new Date(isoOrMs) : new Date(isoOrMs);
+  const d = new Date(isoOrMs);
   if (currentWindow === '24h' || currentWindow === '7d')
     return d.toLocaleDateString('en', {month:'short', day:'numeric'}) + ' ' +
            d.toLocaleTimeString('en', {hour:'2-digit', minute:'2-digit'});
@@ -279,8 +287,20 @@ function setConnStatus(state) {
     rpi_offline:  'RPi offline',
     disconnected: 'Disconnected',
     error:        'Connection error',
-    Connecting:   'Connecting…',
+    connecting:   'Connecting…',
   }[state] ?? state;
+  updateRefreshButtonState();
+}
+
+function updateRefreshButtonState() {
+  const btn = document.getElementById('refresh-btn');
+  if (!btn) return;
+  // `client` is declared later as a `const` and we may be called before init.
+  let online = false;
+  try { online = !!(client && client.connected); } catch { online = false; }
+  if (btn.dataset.busy === '1') return;
+  btn.disabled = !online;
+  btn.title = online ? 'Force immediate sensor poll' : 'Disconnected — refresh unavailable';
 }
 
 function cssVar(name) {
@@ -314,10 +334,16 @@ function saveLayout() {
 function placeCard(card, sensorId, existingCount) {
   const saved = loadLayout()[sensorId];
   if (saved) {
-    card.style.left   = saved.left   + 'px';
-    card.style.top    = saved.top    + 'px';
-    card.style.width  = saved.width  + 'px';
-    card.style.height = saved.height + 'px';
+    const grid = card.parentElement;
+    const containerWidth = (grid && grid.clientWidth) || window.innerWidth || 1200;
+    const width  = Math.max(280, Math.min(saved.width  ?? DEFAULT_CARD_W, containerWidth));
+    const height = Math.max(200, saved.height ?? DEFAULT_CARD_H);
+    const left   = Math.max(0, Math.min(saved.left ?? 0, Math.max(0, containerWidth - width)));
+    const top    = Math.max(0, saved.top ?? 0);
+    card.style.left   = left   + 'px';
+    card.style.top    = top    + 'px';
+    card.style.width  = width  + 'px';
+    card.style.height = height + 'px';
     return;
   }
   const grid = card.parentElement;
@@ -344,8 +370,8 @@ function updateGridHeight() {
 function makeDraggable(card) {
   const head = card.querySelector('.sensor-head');
   if (!head) return;
-  head.addEventListener('mousedown', e => {
-    if (e.button !== 0) return;
+  head.addEventListener('pointerdown', e => {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
     if (e.target.closest('button, input, select, a, label')) return;
     const grid     = card.parentElement;
     const gridRect = grid.getBoundingClientRect();
@@ -353,23 +379,30 @@ function makeDraggable(card) {
     const offsetX  = e.clientX - cardRect.left;
     const offsetY  = e.clientY - cardRect.top;
     const prevUserSelect = document.body.style.userSelect;
+    const pointerId = e.pointerId;
     document.body.style.userSelect = 'none';
+    try { head.setPointerCapture(pointerId); } catch {}
 
     function onMove(ev) {
+      if (ev.pointerId !== pointerId) return;
       const x = ev.clientX - gridRect.left - offsetX;
       const y = ev.clientY - gridRect.top  - offsetY;
       card.style.left = Math.max(0, x) + 'px';
       card.style.top  = Math.max(0, y) + 'px';
       updateGridHeight();
     }
-    function onUp() {
-      document.removeEventListener('mousemove', onMove);
-      document.removeEventListener('mouseup', onUp);
+    function onUp(ev) {
+      if (ev.pointerId !== pointerId) return;
+      head.removeEventListener('pointermove', onMove);
+      head.removeEventListener('pointerup', onUp);
+      head.removeEventListener('pointercancel', onUp);
+      try { head.releasePointerCapture(pointerId); } catch {}
       document.body.style.userSelect = prevUserSelect;
       saveLayout();
     }
-    document.addEventListener('mousemove', onMove);
-    document.addEventListener('mouseup', onUp);
+    head.addEventListener('pointermove', onMove);
+    head.addEventListener('pointerup', onUp);
+    head.addEventListener('pointercancel', onUp);
     e.preventDefault();
   });
 }
@@ -389,17 +422,16 @@ function ensureCard(sensorId, metric) {
   if (ph) ph.remove();
 
   const col = palette[Object.keys(charts).length % palette.length];
-  const jsId = JSON.stringify(sensorId);
   const card = document.createElement('div');
   card.id        = 'card-' + sid;
   card.className = 'card';
   card.dataset.sensorId = sensorId;
   card.innerHTML = `
     <div class="sensor-head">
-      <span class="sensor-name">${sensorId}</span>
-      <span class="metric-tag">${metric}</span>
+      <span class="sensor-name"></span>
+      <span class="metric-tag"></span>
       <span class="status ok" id="status-${sid}">--</span>
-      <button class="reset-zoom-btn" id="reset-zoom-${sid}" onclick="resetZoom(${jsId})">&#8635; Reset</button>
+      <button class="reset-zoom-btn" id="reset-zoom-${sid}" type="button">&#8635; Reset</button>
     </div>
     <div class="sensor-row">
       <span class="sensor-value" id="val-${sid}">--</span>
@@ -411,6 +443,9 @@ function ensureCard(sensorId, metric) {
     <div class="chart-wrap"><canvas id="chart-${sid}"></canvas></div>
     <div class="chart-hint">Scroll to zoom &middot; Drag chart to pan &middot; Drag header to move &middot; Drag corner to resize</div>
   `;
+  card.querySelector('.sensor-name').textContent = sensorId;
+  card.querySelector('.metric-tag').textContent  = metric;
+  card.querySelector('.reset-zoom-btn').addEventListener('click', () => resetZoom(sensorId));
   const grid = document.getElementById('sensors-grid');
   const existingBefore = grid.querySelectorAll('.card[data-sensor-id]').length;
   grid.appendChild(card);
@@ -464,6 +499,24 @@ function ensureCard(sensorId, metric) {
 
   updateAnnotations(sensorId);
   requestHydration(sensorId);
+  // If a persisted historical window is active, also fetch the windowed view.
+  if (currentWindow !== 'live') requestSingleWindowHydration(sensorId, currentWindow);
+}
+
+function requestSingleWindowHydration(sensorId, w) {
+  if (!client || !client.connected) return;
+  const windowMs = {'1h':3_600_000,'6h':21_600_000,'24h':86_400_000,'7d':604_800_000}[w];
+  if (!windowMs) return;
+  const sinceTs = Date.now() - windowMs;
+  const reqId = (crypto.randomUUID && crypto.randomUUID())
+    || (Date.now().toString(36) + Math.random().toString(36).slice(2));
+  pendingWindowHydrations[reqId] = sensorId;
+  client.publish(
+    `${TOPIC_PREFIX}/history/req`,
+    JSON.stringify({ request_id: reqId, sensor_id: sensorId, limit: 500, since_ts: sinceTs }),
+    { qos: 1, retain: false }
+  );
+  setTimeout(() => { delete pendingWindowHydrations[reqId]; }, 10_000);
 }
 
 // ── History hydration ──────────────────────────────────────────────────────────
@@ -471,12 +524,13 @@ function ensureCard(sensorId, metric) {
 // and subscribe on rpi/history/resp/+ in the broker ACL.
 function requestHydration(sensorId) {
   if (hydratedSensors.has(sensorId)) return;
-  if (Object.values(pendingHydrations).includes(sensorId)) return;
+  if (pendingHydrationSet.has(sensorId)) return;
   if (!client || !client.connected) return;
 
   const reqId = (crypto.randomUUID && crypto.randomUUID())
     || (Date.now().toString(36) + Math.random().toString(36).slice(2));
   pendingHydrations[reqId] = sensorId;
+  pendingHydrationSet.add(sensorId);
 
   client.publish(
     `${TOPIC_PREFIX}/history/req`,
@@ -485,7 +539,10 @@ function requestHydration(sensorId) {
   );
 
   setTimeout(() => {
-    if (pendingHydrations[reqId]) delete pendingHydrations[reqId];
+    if (pendingHydrations[reqId]) {
+      delete pendingHydrations[reqId];
+      pendingHydrationSet.delete(sensorId);
+    }
   }, 5000);
 }
 
@@ -555,10 +612,15 @@ function handleReading(sensorId, data) {
   const s = document.getElementById('status-' + sid);
   if (s.textContent === '--') { s.textContent = 'OK'; s.className = 'status ok'; }
 
+  const chart = charts[sensorId];
   if (currentWindow === 'live') {
-    const chart = charts[sensorId];
     chart.data.labels           = history[sensorId].map(h => fmt(h.timestamp));
     chart.data.datasets[0].data = history[sensorId].map(h => h.value);
+    chart.update('none');
+  } else {
+    // In a historical window, append the live point so the chart keeps progressing.
+    chart.data.labels.push(fmt(data.timestamp));
+    chart.data.datasets[0].data.push(data.value);
     chart.update('none');
   }
 
@@ -588,35 +650,50 @@ function renderEvents() {
     ul.innerHTML = '<li><span class="empty">No alerts yet</span></li>';
     return;
   }
-  ul.innerHTML = events.map(e => `
-    <li>
-      <span class="badge ${e.type === 'EXCEEDED' ? 'exceeded' : 'recovered'}">
-        ${e.type === 'EXCEEDED' ? '▲' : '▼'}
-      </span>
-      <span class="event-sensor">${e.sensor_id}</span>
-      <span class="ts">${fmt(e.timestamp)}</span>
-      <span class="det">${e.metric}=${e.value.toFixed(1)} · threshold ${e.threshold.toFixed(1)}</span>
-    </li>`).join('');
+  ul.innerHTML = events.map(e => {
+    const exceeded = e.type === 'EXCEEDED';
+    const value     = Number(e.value);
+    const threshold = Number(e.threshold);
+    const valStr    = Number.isFinite(value)     ? value.toFixed(1)     : '--';
+    const thrStr    = Number.isFinite(threshold) ? threshold.toFixed(1) : '--';
+    return `
+      <li>
+        <span class="badge ${exceeded ? 'exceeded' : 'recovered'}">
+          ${exceeded ? '▲' : '▼'}
+        </span>
+        <span class="event-sensor">${escapeHtml(e.sensor_id)}</span>
+        <span class="ts">${escapeHtml(fmt(e.timestamp))}</span>
+        <span class="det">${escapeHtml(e.metric ?? '')}=${valStr} · threshold ${thrStr}</span>
+      </li>`;
+  }).join('');
 }
 
 // ── Refresh (force-poll) ───────────────────────────────────────────────────────
 document.getElementById('refresh-btn').addEventListener('click', () => {
   const btn = document.getElementById('refresh-btn');
   if (!client || !client.connected) return;
+  btn.dataset.busy = '1';
   btn.disabled = true;
   btn.textContent = '↻ Refreshing…';
   client.publish(`${TOPIC_PREFIX}/cmd/refresh`, '{}', { qos: 1, retain: false });
   setTimeout(() => {
-    btn.disabled = false;
+    btn.dataset.busy = '';
     btn.textContent = '↻ Refresh';
+    updateRefreshButtonState();
   }, 2000);
+});
+
+// ── Time-window buttons (event delegation) ─────────────────────────────────────
+document.getElementById('time-bar').addEventListener('click', e => {
+  const btn = e.target.closest('.time-btn');
+  if (!btn) return;
+  setWindow(btn.dataset.w);
 });
 
 // ── Theme toggle ───────────────────────────────────────────────────────────────
 function applyTheme(t) {
   document.documentElement.setAttribute('data-theme', t);
   document.getElementById('theme-btn').textContent = t === 'dark' ? '☀' : '☾';
-  // Update chart axis colors on theme change
   for (const id in charts) {
     const c = charts[id];
     c.options.scales.x.ticks.color = cssVar('--muted-2');
@@ -624,22 +701,63 @@ function applyTheme(t) {
     c.options.scales.y.ticks.color = cssVar('--muted-2');
     c.options.scales.y.grid.color  = cssVar('--grid');
     c.update('none');
+    // Annotation label colours read CSS vars at draw time, so refresh them.
+    updateAnnotations(id);
   }
 }
 document.getElementById('theme-btn').addEventListener('click', () => {
   const current = document.documentElement.getAttribute('data-theme') || 'light';
   const next = current === 'dark' ? 'light' : 'dark';
-  localStorage.setItem('rpi-sentinel-theme', next);
+  try { localStorage.setItem('rpi-sentinel-theme', next); } catch {}
   applyTheme(next);
 });
 applyTheme(localStorage.getItem('rpi-sentinel-theme') || 'light');
 
+// Restore persisted time window selection.
+document.querySelectorAll('.time-btn').forEach(b =>
+  b.classList.toggle('active', b.dataset.w === currentWindow));
+
 // ── Config modal ───────────────────────────────────────────────────────────────
-const modal = document.getElementById('config-modal');
-document.getElementById('config-btn').addEventListener('click', () => modal.classList.add('open'));
-document.getElementById('modal-close').addEventListener('click', () => modal.classList.remove('open'));
-modal.addEventListener('click', e => { if (e.target === modal) modal.classList.remove('open'); });
-document.addEventListener('keydown', e => { if (e.key === 'Escape') modal.classList.remove('open'); });
+const modal           = document.getElementById('config-modal');
+const modalDialog     = modal.querySelector('.modal');
+modal.setAttribute('role', 'dialog');
+modal.setAttribute('aria-modal', 'true');
+modal.setAttribute('aria-hidden', 'true');
+modalDialog.setAttribute('aria-labelledby', 'config-modal-title');
+modal.querySelector('.modal-head h3').id = 'config-modal-title';
+
+let lastFocusedBeforeModal = null;
+function openModal() {
+  lastFocusedBeforeModal = document.activeElement;
+  modal.classList.add('open');
+  modal.setAttribute('aria-hidden', 'false');
+  // Focus the close button by default.
+  setTimeout(() => document.getElementById('modal-close').focus(), 0);
+}
+function closeModal() {
+  modal.classList.remove('open');
+  modal.setAttribute('aria-hidden', 'true');
+  if (lastFocusedBeforeModal && lastFocusedBeforeModal.focus) {
+    lastFocusedBeforeModal.focus();
+  }
+}
+document.getElementById('config-btn').addEventListener('click', openModal);
+document.getElementById('modal-close').addEventListener('click', closeModal);
+modal.addEventListener('click', e => { if (e.target === modal) closeModal(); });
+document.addEventListener('keydown', e => {
+  if (!modal.classList.contains('open')) return;
+  if (e.key === 'Escape') { closeModal(); return; }
+  if (e.key !== 'Tab') return;
+  // Simple focus trap inside the dialog.
+  const focusables = modalDialog.querySelectorAll(
+    'a[href], button:not([disabled]), input:not([disabled]), select, textarea, [tabindex]:not([tabindex="-1"])'
+  );
+  if (!focusables.length) return;
+  const first = focusables[0];
+  const last  = focusables[focusables.length - 1];
+  if (e.shiftKey && document.activeElement === first) { last.focus(); e.preventDefault(); }
+  else if (!e.shiftKey && document.activeElement === last) { first.focus(); e.preventDefault(); }
+});
 
 // ── MQTT connection ────────────────────────────────────────────────────────────
 const client = mqtt.connect(BROKER_WSS, {
@@ -662,7 +780,21 @@ client.on('connect', () => {
 
   // Re-request hydration for any sensors that already have a card but
   // haven't been hydrated yet (e.g. after a reconnect).
-  for (const sensorId of Object.keys(charts)) requestHydration(sensorId);
+  for (const sensorId of Object.keys(charts)) {
+    requestHydration(sensorId);
+    if (currentWindow !== 'live') requestSingleWindowHydration(sensorId, currentWindow);
+  }
+
+  updateRefreshButtonState();
+
+  // On first connect only: fall back to rpi_offline if status never arrives.
+  if (firstConnect) {
+    firstConnect = false;
+    setTimeout(() => {
+      const label = document.getElementById('conn-label').textContent;
+      if (label === 'Connecting…') setConnStatus('rpi_offline');
+    }, 5000);
+  }
 });
 
 client.on('disconnect', () => setConnStatus('disconnected'));
@@ -672,18 +804,7 @@ client.on('error',      () => setConnStatus('error'));
 client.on('reconnect',  () => {
   if      (lastRpiStatus === 'online')  setConnStatus('connected');
   else if (lastRpiStatus === 'offline') setConnStatus('rpi_offline');
-  else                                  setConnStatus('Connecting');
-});
-
-client.on('connect', () => {
-  // On first connect only: fall back to rpi_offline if status never arrives.
-  if (firstConnect) {
-    firstConnect = false;
-    setTimeout(() => {
-      const label = document.getElementById('conn-label').textContent;
-      if (label === 'Connecting…') setConnStatus('rpi_offline');
-    }, 5000);
-  }
+  else                                  setConnStatus('connecting');
 });
 
 client.on('message', (topic, message) => {
@@ -708,6 +829,7 @@ client.on('message', (topic, message) => {
     const sensorId = pendingHydrations[reqId];
     if (!sensorId) return;
     delete pendingHydrations[reqId];
+    pendingHydrationSet.delete(sensorId);
     if (Array.isArray(data.points)) applyHydration(sensorId, data.points);
     return;
   }
@@ -726,6 +848,8 @@ client.on('message', (topic, message) => {
         charts[sensorId].destroy();
         delete charts[sensorId];
         delete history[sensorId];
+        hydratedSensors.delete(sensorId);
+        pendingHydrationSet.delete(sensorId);
         const cardEl = document.getElementById('card-' + domId(sensorId));
         if (cardEl) {
           cardResizeObserver.unobserve(cardEl);
@@ -750,6 +874,7 @@ client.on('message', (topic, message) => {
       grid.querySelectorAll('.card:not(#placeholder-card)').length;
 
     renderConfigPanel();
+    reconcilePendingSaves();
     return;
   }
 
@@ -775,6 +900,7 @@ function applyWindowHydration(sensorId, points) {
 
 function setWindow(w) {
   currentWindow = w;
+  try { localStorage.setItem(WINDOW_KEY, w); } catch {}
   document.querySelectorAll('.time-btn').forEach(b =>
     b.classList.toggle('active', b.dataset.w === w));
 
@@ -814,43 +940,120 @@ function setWindow(w) {
 
 function renderConfigPanel() {
   const container = document.getElementById('config-rows');
-  container.innerHTML = '';
-  for (const [id, thr] of Object.entries(sensorThresholds)) {
-    const sid = id.replace(/[^a-zA-Z0-9_-]/g, '_');
-    const row = document.createElement('div');
-    row.className = 'config-row';
-    row.innerHTML = `
-      <span class="config-label">${id}</span>
-      <span class="config-field">Warn <input class="config-input" type="number" step="0.5" id="cfg-warn-${sid}" value="${thr.warn.toFixed(1)}"></span>
-      <span class="config-field">Crit <input class="config-input" type="number" step="0.5" id="cfg-crit-${sid}" value="${thr.crit.toFixed(1)}"></span>
-      <button class="config-save-btn" onclick="saveThreshold('${id}','${sid}')">Save</button>
-      <span class="save-feedback" id="cfg-fb-${sid}"></span>`;
-    container.appendChild(row);
+  const ids = Object.keys(sensorThresholds);
+  if (!ids.length) {
+    container.innerHTML = '<span class="empty">Waiting for RPi…</span>';
+    return;
+  }
+
+  // Track currently-focused input so we don't clobber an in-progress edit.
+  const active   = document.activeElement;
+  const activeId = active && active.id ? active.id : null;
+
+  // Build a stable index of existing rows keyed by sensor id.
+  const existing = new Map();
+  container.querySelectorAll('.config-row[data-sensor-id]').forEach(r => {
+    existing.set(r.dataset.sensorId, r);
+  });
+
+  // Drop rows whose sensors disappeared.
+  for (const [id, row] of existing) {
+    if (!(id in sensorThresholds)) row.remove();
+  }
+  // Clear any non-row content (e.g. the "Waiting for RPi…" placeholder).
+  Array.from(container.children).forEach(c => {
+    if (!c.classList || !c.classList.contains('config-row')) c.remove();
+  });
+
+  for (const id of ids) {
+    const thr = sensorThresholds[id];
+    const sid = domId(id);
+    let row = existing.get(id);
+    if (!row) {
+      row = document.createElement('div');
+      row.className = 'config-row';
+      row.dataset.sensorId = id;
+      row.innerHTML = `
+        <span class="config-label"></span>
+        <span class="config-field">Warn <input class="config-input" type="number" step="0.5" id="cfg-warn-${sid}"></span>
+        <span class="config-field">Crit <input class="config-input" type="number" step="0.5" id="cfg-crit-${sid}"></span>
+        <button class="config-save-btn" type="button">Save</button>
+        <span class="save-feedback" id="cfg-fb-${sid}"></span>`;
+      row.querySelector('.config-label').textContent = id;
+      row.querySelector('.config-save-btn').addEventListener('click', () => saveThreshold(id, sid));
+      container.appendChild(row);
+    }
+    const warnInput = row.querySelector('#cfg-warn-' + sid);
+    const critInput = row.querySelector('#cfg-crit-' + sid);
+    if (warnInput && warnInput.id !== activeId) warnInput.value = thr.warn.toFixed(1);
+    if (critInput && critInput.id !== activeId) critInput.value = thr.crit.toFixed(1);
   }
 }
 
 function saveThreshold(sensorId, sid) {
-  const warn = parseFloat(document.getElementById('cfg-warn-' + sid).value);
-  const crit = parseFloat(document.getElementById('cfg-crit-' + sid).value);
-  const fb   = document.getElementById('cfg-fb-' + sid);
-  if (isNaN(warn) || isNaN(crit) || warn <= 0 || crit <= 0 || warn >= crit) {
-    fb.textContent = 'Invalid'; fb.className = 'save-feedback save-err'; return;
+  const warnEl = document.getElementById('cfg-warn-' + sid);
+  const critEl = document.getElementById('cfg-crit-' + sid);
+  const fb     = document.getElementById('cfg-fb-' + sid);
+  const warn   = parseFloat(warnEl.value);
+  const crit   = parseFloat(critEl.value);
+  if (!Number.isFinite(warn) || !Number.isFinite(crit) || warn >= crit) {
+    fb.textContent = 'Invalid'; fb.className = 'save-feedback save-err';
+    fb.title = 'Warn must be a number strictly less than Crit';
+    return;
   }
+  fb.title = '';
+  if (!client || !client.connected) {
+    fb.textContent = 'Offline'; fb.className = 'save-feedback save-err';
+    return;
+  }
+
+  // Cancel any previous pending save for this sensor.
+  const prev = pendingSaves[sensorId];
+  if (prev && prev.timer) clearTimeout(prev.timer);
+
+  fb.textContent = 'Sending…'; fb.className = 'save-feedback';
+
   // Note: the MQTT subscriber user must have write permission on rpi/config/set in HiveMQ ACLs
   client.publish(
     `${TOPIC_PREFIX}/config/set`,
     JSON.stringify({ sensor_id: sensorId, threshold_warn: warn, threshold_crit: crit }),
     { qos: 1, retain: false },
     err => {
-      if (err) { fb.textContent = 'Error'; fb.className = 'save-feedback save-err'; }
-      else {
-        fb.textContent = 'Sent'; fb.className = 'save-feedback save-ok';
-        sensorThresholds[sensorId] = { warn, crit };
-        updateAnnotations(sensorId);
+      if (err) {
+        fb.textContent = 'Error'; fb.className = 'save-feedback save-err';
+        delete pendingSaves[sensorId];
+        return;
       }
-      setTimeout(() => { fb.textContent = ''; }, 3000);
+      fb.textContent = 'Sent'; fb.className = 'save-feedback';
+      pendingSaves[sensorId] = {
+        warn, crit, sid, fb,
+        timer: setTimeout(() => {
+          if (pendingSaves[sensorId]) {
+            fb.textContent = 'No ack'; fb.className = 'save-feedback save-err';
+            delete pendingSaves[sensorId];
+          }
+        }, 5000),
+      };
     }
   );
+}
+
+function reconcilePendingSaves() {
+  for (const [sensorId, p] of Object.entries(pendingSaves)) {
+    const thr = sensorThresholds[sensorId];
+    if (!thr) continue;
+    const warnMatch = Math.abs(thr.warn - p.warn) < 1e-6;
+    const critMatch = Math.abs(thr.crit - p.crit) < 1e-6;
+    if (warnMatch && critMatch) {
+      p.fb.textContent = 'Saved'; p.fb.className = 'save-feedback save-ok';
+    } else {
+      p.fb.textContent = 'Mismatch'; p.fb.className = 'save-feedback save-err';
+      p.fb.title = `Server applied warn=${thr.warn}, crit=${thr.crit}`;
+    }
+    if (p.timer) clearTimeout(p.timer);
+    setTimeout(() => { p.fb.textContent = ''; p.fb.title = ''; }, 3000);
+    delete pendingSaves[sensorId];
+  }
 }
 </script>
 </body>
