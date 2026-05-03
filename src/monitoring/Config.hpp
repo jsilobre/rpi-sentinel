@@ -51,12 +51,26 @@ struct GpioConfig {
     int  pin     = 17;   // BCM pin number
 };
 
+// Bearer-token auth on the HTTP API. When `enabled`, mutating routes
+// (POST /api/config, POST /api/refresh) require a matching token via
+// the `Authorization: Bearer <token>` header.
+//
+// The active token is resolved at startup: the env var named in
+// `token_env` takes precedence over the literal `token` field. Storing
+// a literal token in config.json is intended for development only.
+struct WebAuthConfig {
+    bool        enabled    = false;
+    std::string token;                                      // dev only
+    std::string token_env  = "RPI_SENTINEL_WEB_TOKEN";
+};
+
 struct Config {
     std::vector<SensorConfig> sensors;
     float                     hysteresis    = 2.0f;
     std::chrono::milliseconds poll_interval {5000};
     bool                      web_enabled   = true;
     uint16_t                  web_port      = 8080;
+    WebAuthConfig             web_auth;
     MqttConfig                mqtt;
     HistoryConfig             history;
     OtlpConfig                otlp;

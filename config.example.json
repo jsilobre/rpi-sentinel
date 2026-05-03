@@ -6,6 +6,15 @@
     // Web dashboard
     "web_enabled": true,
     "web_port": 8080,
+    // Optional bearer-token auth on the HTTP API. When enabled, mutating
+    // routes (POST /api/config, POST /api/refresh) require:
+    //   Authorization: Bearer <token>
+    // The token is read from the env var named in 'token_env' (preferred);
+    // the literal 'token' field is a dev-only fallback.
+    "web_auth": {
+        "enabled": false,
+        "token_env": "RPI_SENTINEL_WEB_TOKEN"
+    },
     // MQTT cloud publishing (HiveMQ Cloud or any MQTT broker)
     // Fill in your credentials and set "enabled": true to activate
     "mqtt": {

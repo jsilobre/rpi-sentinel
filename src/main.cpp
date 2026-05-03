@@ -20,9 +20,11 @@
 
 #include <csignal>
 #include <chrono>
+#include <cstdlib>
 #include <filesystem>
 #include <memory>
 #include <print>
+#include <string>
 #include <thread>
 
 namespace {
@@ -150,14 +152,38 @@ int main(int argc, char* argv[])
 
     std::unique_ptr<rpi::HttpServer> http_server;
     if (hub.get_config_snapshot().web_enabled) {
-        http_server = std::make_unique<rpi::HttpServer>(
-            hub.get_config_snapshot().web_port,
-            web_state,
-            history_store,
-            [&hub]() { return hub.build_config_json(); },
-            on_config_change,
-            [&hub]() { hub.force_poll_all(); });
-        http_server->start();
+        std::string web_token;
+        const auto& auth_cfg = hub.get_config_snapshot().web_auth;
+        if (auth_cfg.enabled) {
+            if (!auth_cfg.token_env.empty()) {
+                if (const char* v = std::getenv(auth_cfg.token_env.c_str()); v && *v) {
+                    web_token = v;
+                }
+            }
+            if (web_token.empty()) web_token = auth_cfg.token;
+
+            if (web_token.empty()) {
+                std::println(stderr,
+                    "[main] web_auth.enabled=true but no token resolved "
+                    "(env '{}' empty and no literal token) — refusing to start HTTP server",
+                    auth_cfg.token_env);
+            } else {
+                std::println("[main] Web auth enabled (bearer token required for POST routes).");
+            }
+        }
+
+        const bool start_http = !auth_cfg.enabled || !web_token.empty();
+        if (start_http) {
+            http_server = std::make_unique<rpi::HttpServer>(
+                hub.get_config_snapshot().web_port,
+                web_state,
+                history_store,
+                [&hub]() { return hub.build_config_json(); },
+                on_config_change,
+                [&hub]() { hub.force_poll_all(); },
+                std::move(web_token));
+            http_server->start();
+        }
     }
 
     std::println("[main] Monitors started. Press Ctrl+C to stop.");

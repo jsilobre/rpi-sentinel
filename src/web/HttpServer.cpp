@@ -137,6 +137,39 @@ let lastSnap      = null;
 
 function domId(id) { return id.replace(/[^a-zA-Z0-9_-]/g, '_'); }
 
+// ── Bearer-token auth helper ─────────────────────────────────────────────
+// The token is stored in localStorage. authFetch() retries once after a 401
+// by prompting the user. GETs don't need auth, so callers should only use
+// authFetch for mutating requests.
+const AUTH_KEY = 'rpi-sentinel.token';
+function getToken() { return localStorage.getItem(AUTH_KEY) || ''; }
+function setToken(t) {
+  if (t) localStorage.setItem(AUTH_KEY, t);
+  else   localStorage.removeItem(AUTH_KEY);
+}
+function promptToken(message) {
+  const t = window.prompt(message || 'Enter API token:', getToken());
+  if (t === null) return '';        // cancelled
+  setToken(t.trim());
+  return getToken();
+}
+async function authFetch(url, opts) {
+  opts = opts || {};
+  const headers = new Headers(opts.headers || {});
+  const tok = getToken();
+  if (tok) headers.set('Authorization', 'Bearer ' + tok);
+  let res = await fetch(url, { ...opts, headers });
+  if (res.status === 401) {
+    const newTok = promptToken(tok
+      ? 'Token rejected. Re-enter API token:'
+      : 'API token required:');
+    if (!newTok) return res;
+    headers.set('Authorization', 'Bearer ' + newTok);
+    res = await fetch(url, { ...opts, headers });
+  }
+  return res;
+}
+
 function formatValue(metric, value) {
   if (metric === 'motion')      return value >= 0.5 ? 'Detected' : 'Clear';
   if (metric === 'pressure')    return value.toFixed(0) + ' hPa';
@@ -366,7 +399,7 @@ async function saveThreshold(sensorId, sid) {
     fb.textContent = 'Invalid'; fb.className = 'save-feedback save-err'; return;
   }
   try {
-    const res = await fetch('/api/config', {
+    const res = await authFetch('/api/config', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({sensors:[{id:sensorId, threshold_warn:warn, threshold_crit:crit}]})
@@ -414,7 +447,8 @@ async function triggerRefresh() {
   btn.disabled = true;
   btn.textContent = '↻ Refreshing…';
   try {
-    await fetch('/api/refresh', { method: 'POST' });
+    const res = await authFetch('/api/refresh', { method: 'POST' });
+    if (!res.ok) throw new Error('refresh ' + res.status);
     dot.className = 'dot live';
     dot.style.background = '';
   } catch(e) {
@@ -452,15 +486,50 @@ static std::string format_iso8601(std::chrono::system_clock::time_point tp)
 HttpServer::HttpServer(uint16_t port, const WebState& state,
                        std::shared_ptr<const HistoryStore> history_store,
                        ConfigGetter config_getter, ConfigUpdater config_updater,
-                       ForcePoller force_poller)
+                       ForcePoller force_poller, std::string auth_token)
     : state_(state)
     , port_(port)
     , history_store_(std::move(history_store))
     , config_getter_(std::move(config_getter))
     , config_updater_(std::move(config_updater))
     , force_poller_(std::move(force_poller))
+    , auth_token_(std::move(auth_token))
     , server_(std::make_unique<httplib::Server>())
 {}
+
+namespace {
+
+// Constant-time string comparison to avoid leaking length/match info via timing.
+bool secure_equals(std::string_view a, std::string_view b)
+{
+    if (a.size() != b.size()) return false;
+    unsigned char diff = 0;
+    for (size_t i = 0; i < a.size(); ++i) {
+        diff |= static_cast<unsigned char>(a[i]) ^ static_cast<unsigned char>(b[i]);
+    }
+    return diff == 0;
+}
+
+// Extracts the bearer token from an Authorization header. Empty if absent
+// or the scheme is not "Bearer".
+std::string extract_bearer(const httplib::Request& req)
+{
+    if (!req.has_header("Authorization")) return {};
+    const auto h = req.get_header_value("Authorization");
+    constexpr std::string_view prefix = "Bearer ";
+    if (h.size() <= prefix.size() || h.compare(0, prefix.size(), prefix) != 0)
+        return {};
+    return h.substr(prefix.size());
+}
+
+void send_unauthorized(httplib::Response& res)
+{
+    res.status = 401;
+    res.set_header("WWW-Authenticate", R"(Bearer realm="rpi-sentinel")");
+    res.set_content(R"({"error":"unauthorized"})", "application/json");
+}
+
+} // namespace
 
 HttpServer::~HttpServer() { stop(); }
 
@@ -479,8 +548,19 @@ void HttpServer::start()
     });
 
     // ── On-demand poll trigger ────────────────────────────────────────────────
-    server_->Post("/api/refresh", [this](const httplib::Request&, httplib::Response& res) {
+    server_->Options("/api/refresh", [](const httplib::Request&, httplib::Response& res) {
+        res.set_header("Access-Control-Allow-Origin",  "*");
+        res.set_header("Access-Control-Allow-Methods", "POST, OPTIONS");
+        res.set_header("Access-Control-Allow-Headers", "Content-Type, Authorization");
+        res.status = 204;
+    });
+
+    server_->Post("/api/refresh", [this](const httplib::Request& req, httplib::Response& res) {
         res.set_header("Access-Control-Allow-Origin", "*");
+        if (!auth_token_.empty() && !secure_equals(extract_bearer(req), auth_token_)) {
+            send_unauthorized(res);
+            return;
+        }
         if (force_poller_) force_poller_();
         res.set_content(R"({"status":"ok"})", "application/json");
     });
@@ -569,12 +649,16 @@ void HttpServer::start()
     server_->Options("/api/config", [](const httplib::Request&, httplib::Response& res) {
         res.set_header("Access-Control-Allow-Origin",  "*");
         res.set_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-        res.set_header("Access-Control-Allow-Headers", "Content-Type");
+        res.set_header("Access-Control-Allow-Headers", "Content-Type, Authorization");
         res.status = 204;
     });
 
     server_->Post("/api/config", [this](const httplib::Request& req, httplib::Response& res) {
         res.set_header("Access-Control-Allow-Origin", "*");
+        if (!auth_token_.empty() && !secure_equals(extract_bearer(req), auth_token_)) {
+            send_unauthorized(res);
+            return;
+        }
         nlohmann::json body;
         try {
             body = nlohmann::json::parse(req.body);
