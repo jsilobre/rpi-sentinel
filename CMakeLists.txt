@@ -14,11 +14,12 @@ include(GNUInstallDirs)
 
 set(RPI_SENTINEL_INSTALL_CONFIG "${CMAKE_CURRENT_SOURCE_DIR}/config.example.json"
     CACHE FILEPATH
-    "Config file installed to <prefix>/${CMAKE_INSTALL_SYSCONFDIR}/rpi-sentinel/. Set to an empty string to skip installing any config.")
+    "Config file installed as <prefix>/${CMAKE_INSTALL_SYSCONFDIR}/rpi-sentinel/config.json. Set to an empty string to skip installing any config.")
 
 if(RPI_SENTINEL_INSTALL_CONFIG)
     install(FILES "${RPI_SENTINEL_INSTALL_CONFIG}"
-            DESTINATION "${CMAKE_INSTALL_SYSCONFDIR}/rpi-sentinel")
+            DESTINATION "${CMAKE_INSTALL_SYSCONFDIR}/rpi-sentinel"
+            RENAME config.json)
 endif()
 
 option(BUILD_TESTING "Build unit tests" ON)

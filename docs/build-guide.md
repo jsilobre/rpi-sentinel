@@ -167,7 +167,7 @@ By default this installs:
 | Path | Source |
 |---|---|
 | `<prefix>/bin/rpi-sentinel` | the built executable |
-| `<prefix>/etc/rpi-sentinel/config.example.json` | repo's `config.example.json` |
+| `<prefix>/etc/rpi-sentinel/config.json` | repo's `config.example.json` (renamed) |
 
 ### Option B — Cross-compilation (PC → ARM64)
 
