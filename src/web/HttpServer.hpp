@@ -22,11 +22,14 @@ public:
     using ForcePoller   = std::function<void()>;
 
     // history_store may be nullptr when persistence is disabled.
+    // auth_token, when non-empty, is required on mutating POST routes via
+    // the `Authorization: Bearer <token>` header.
     HttpServer(uint16_t port, const WebState& state,
                std::shared_ptr<const HistoryStore> history_store,
                ConfigGetter  config_getter,
                ConfigUpdater config_updater,
-               ForcePoller   force_poller);
+               ForcePoller   force_poller,
+               std::string   auth_token = {});
     ~HttpServer();
 
     void start();
@@ -41,6 +44,7 @@ private:
     ConfigGetter                         config_getter_;
     ConfigUpdater                        config_updater_;
     ForcePoller                          force_poller_;
+    std::string                          auth_token_;
     std::unique_ptr<httplib::Server>     server_;
     std::thread                          thread_;
 };

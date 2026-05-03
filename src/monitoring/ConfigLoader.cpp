@@ -72,6 +72,20 @@ auto load_config(const std::filesystem::path& path) -> std::expected<Config, std
         if (j.contains("web_enabled"))      cfg.web_enabled   = j["web_enabled"].get<bool>();
         if (j.contains("web_port"))         cfg.web_port      = j["web_port"].get<uint16_t>();
 
+        if (j.contains("web_auth") && j["web_auth"].is_object()) {
+            const auto& a = j["web_auth"];
+            if (a.contains("enabled"))   cfg.web_auth.enabled   = a["enabled"].get<bool>();
+            if (a.contains("token"))     cfg.web_auth.token     = a["token"].get<std::string>();
+            if (a.contains("token_env")) cfg.web_auth.token_env = a["token_env"].get<std::string>();
+        }
+        if (cfg.web_auth.enabled
+            && cfg.web_auth.token.empty()
+            && cfg.web_auth.token_env.empty())
+        {
+            return std::unexpected(
+                "web_auth.enabled=true but neither 'token' nor 'token_env' is set");
+        }
+
         if (j.contains("mqtt") && j["mqtt"].is_object()) {
             const auto& m = j["mqtt"];
             if (m.contains("enabled"))      cfg.mqtt.enabled      = m["enabled"].get<bool>();
@@ -146,6 +160,12 @@ auto save_config(const std::filesystem::path& path, const Config& config) -> std
     j["poll_interval_ms"] = static_cast<int>(config.poll_interval.count());
     j["web_enabled"]      = config.web_enabled;
     j["web_port"]         = config.web_port;
+    j["web_auth"] = {
+        {"enabled",   config.web_auth.enabled},
+        {"token_env", config.web_auth.token_env},
+    };
+    if (!config.web_auth.token.empty())
+        j["web_auth"]["token"] = config.web_auth.token;
     j["mqtt"] = {
         {"enabled",      config.mqtt.enabled},
         {"broker_url",   config.mqtt.broker_url},

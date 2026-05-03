@@ -99,7 +99,20 @@ Each `ThresholdMonitor` runs in its own `std::jthread`:
 | `/` | GET | Dashboard HTML (Chart.js, auto-refresh every 2 s) |
 | `/api/state` | GET | Current readings, 120-point history, and recent alerts (JSON) |
 | `/api/config` | GET | Sensor thresholds |
-| `/api/config` | POST | Update thresholds at runtime without restart |
+| `/api/config` | POST | Update thresholds at runtime without restart (auth) |
+| `/api/refresh` | POST | Force an immediate sensor poll (auth) |
+
+### Web auth (optional)
+
+Set `web_auth.enabled: true` in `config.json` to require a bearer token on
+mutating POST routes. The active token is resolved at startup from the env
+var named in `web_auth.token_env` (defaults to `RPI_SENTINEL_WEB_TOKEN`);
+a literal `web_auth.token` is a dev-only fallback. When auth is enabled but
+no token can be resolved, the daemon refuses to start the HTTP server. GET
+routes and the SSE stream remain unauthenticated.
+
+Clients send `Authorization: Bearer <token>` on POSTs. The bundled dashboard
+prompts the user on the first 401 and persists the token in `localStorage`.
 
 ### MQTT History-on-Demand Protocol
 

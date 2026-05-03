@@ -190,3 +190,53 @@ TEST(ConfigLoader, OtlpRejectsNonPositiveExportInterval)
     auto result = rpi::load_config(path);
     EXPECT_FALSE(result.has_value());
 }
+
+TEST(ConfigLoader, WebAuthDefaultsWhenAbsent)
+{
+    auto path = write_tmp(R"({
+        "sensors": [{"id": "s0", "type": "simulated", "threshold_warn": 50.0, "threshold_crit": 80.0}]
+    })");
+    auto result = rpi::load_config(path);
+    ASSERT_TRUE(result.has_value()) << result.error();
+    EXPECT_FALSE(result->web_auth.enabled);
+    EXPECT_TRUE(result->web_auth.token.empty());
+    EXPECT_EQ(result->web_auth.token_env, "RPI_SENTINEL_WEB_TOKEN");
+}
+
+TEST(ConfigLoader, WebAuthFullBlockParsed)
+{
+    auto path = write_tmp(R"({
+        "sensors": [{"id": "s0", "type": "simulated", "threshold_warn": 50.0, "threshold_crit": 80.0}],
+        "web_auth": {
+            "enabled":   true,
+            "token":     "literal-dev-token",
+            "token_env": "MY_TOKEN_VAR"
+        }
+    })");
+    auto result = rpi::load_config(path);
+    ASSERT_TRUE(result.has_value()) << result.error();
+    EXPECT_TRUE(result->web_auth.enabled);
+    EXPECT_EQ(result->web_auth.token,     "literal-dev-token");
+    EXPECT_EQ(result->web_auth.token_env, "MY_TOKEN_VAR");
+}
+
+TEST(ConfigLoader, WebAuthEnabledRequiresTokenOrEnv)
+{
+    auto path = write_tmp(R"({
+        "sensors": [{"id": "s0", "type": "simulated", "threshold_warn": 50.0, "threshold_crit": 80.0}],
+        "web_auth": {"enabled": true, "token": "", "token_env": ""}
+    })");
+    auto result = rpi::load_config(path);
+    EXPECT_FALSE(result.has_value());
+}
+
+TEST(ConfigLoader, WebAuthEnabledAcceptsTokenEnvAlone)
+{
+    auto path = write_tmp(R"({
+        "sensors": [{"id": "s0", "type": "simulated", "threshold_warn": 50.0, "threshold_crit": 80.0}],
+        "web_auth": {"enabled": true, "token_env": "RPI_SENTINEL_WEB_TOKEN"}
+    })");
+    auto result = rpi::load_config(path);
+    ASSERT_TRUE(result.has_value()) << result.error();
+    EXPECT_TRUE(result->web_auth.enabled);
+}
