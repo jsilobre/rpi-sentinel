@@ -9,3 +9,6 @@ add_subdirectory(otel)
 add_executable(rpi-sentinel main.cpp)
 target_link_libraries(rpi-sentinel PRIVATE monitoring web persistence otel)
 apply_compiler_options(rpi-sentinel)
+
+install(TARGETS rpi-sentinel
+        RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})

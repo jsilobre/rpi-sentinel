@@ -156,7 +156,18 @@ git clone <repo>
 cd rpi-sentinel
 cmake -B build -DCMAKE_CXX_COMPILER=g++-14 -DCMAKE_BUILD_TYPE=Release
 cmake --build build --parallel
+
+# Install the daemon binary and the config file under the default prefix
+# (/usr/local). Override with -DCMAKE_INSTALL_PREFIX=... at configure time.
+sudo cmake --install build
 ```
+
+By default this installs:
+
+| Path | Source |
+|---|---|
+| `<prefix>/bin/rpi-sentinel` | the built executable |
+| `<prefix>/etc/rpi-sentinel/config.example.json` | repo's `config.example.json` |
 
 ### Option B — Cross-compilation (PC → ARM64)
 
@@ -171,7 +182,25 @@ cmake -B build-arm \
   -DCMAKE_BUILD_TYPE=Release
 
 cmake --build build-arm --parallel
-# Copy build-arm/rpi-sentinel to the RPi via scp
+```
+
+Stage the install tree into a directory (using the standard `DESTDIR`
+environment variable), then ship it to the RPi:
+
+```bash
+DESTDIR=$PWD/stage cmake --install build-arm --prefix /usr/local
+rsync -a stage/ pi@raspberrypi:/
+# or, for a one-off binary copy: scp build-arm/rpi-sentinel pi@raspberrypi:/usr/local/bin/
+```
+
+Selecting which config file is installed:
+
+```bash
+# Install a production config in place of config.example.json
+cmake -B build-arm ... -DRPI_SENTINEL_INSTALL_CONFIG=$PWD/prod.json
+
+# Skip installing any config file (binary only)
+cmake -B build-arm ... -DRPI_SENTINEL_INSTALL_CONFIG=""
 ```
 
 ### Enabling the 1-Wire bus on RPi 5
