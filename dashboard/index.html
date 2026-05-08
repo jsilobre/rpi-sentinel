@@ -227,6 +227,7 @@ const pendingHydrations    = {};  // request_id → sensorId (initial load)
 const pendingHydrationSet  = new Set(); // sensorIds with an in-flight initial hydration
 const pendingWindowHydrations = {}; // request_id → sensorId (window switch)
 const hydratedSensors      = new Set();
+let   clearedAt            = 0;   // epoch-ms; readings older than this are dropped
 const pendingSaves         = {};  // sensorId → { warn, crit, fb, sid, timer }
 const WINDOW_KEY           = 'rpi-sentinel-window';
 let   currentWindow        = localStorage.getItem(WINDOW_KEY) || 'live';
@@ -561,7 +562,7 @@ function applyHydration(sensorId, points) {
   const liveOldestMs = live.length ? new Date(live[0].timestamp).getTime() : Infinity;
 
   const historical = points
-    .filter(p => p.ts < liveOldestMs)
+    .filter(p => p.ts < liveOldestMs && p.ts >= clearedAt)
     .map(p => ({ value: p.value, timestamp: new Date(p.ts).toISOString() }));
 
   const merged = historical.concat(live);
@@ -604,6 +605,7 @@ function updateStats(sensorId) {
 
 function handleReading(sensorId, data) {
   if (knownSensorIds.size > 0 && !knownSensorIds.has(sensorId)) return;
+  if (clearedAt && new Date(data.timestamp).getTime() < clearedAt) return;
   ensureCard(sensorId, data.metric ?? '');
 
   if (!history[sensorId]) history[sensorId] = [];
@@ -722,6 +724,26 @@ document.getElementById('clear-btn').addEventListener('click', () => {
   btn.disabled = true;
   btn.textContent = '⏳ Clearing…';
   client.publish(`${TOPIC_PREFIX}/cmd/clear`, '{}', { qos: 1, retain: false });
+
+  // Drop in-memory state immediately so charts go blank without waiting for MQTT.
+  // Stale history responses already in flight are filtered by clearedAt below.
+  clearedAt = Date.now();
+  for (const sensorId of Object.keys(history)) history[sensorId] = [];
+  hydratedSensors.clear();
+  for (const sensorId of Object.keys(charts)) {
+    const chart = charts[sensorId];
+    chart.data.labels           = [];
+    chart.data.datasets[0].data = [];
+    chart.update('none');
+    const sid = domId(sensorId);
+    const statsEl = document.getElementById('stats-' + sid);
+    if (statsEl) statsEl.innerHTML = '';
+    const trendEl = document.getElementById('trend-' + sid);
+    if (trendEl) { trendEl.className = 'trend'; trendEl.textContent = ''; }
+  }
+  events.length = 0;
+  renderEvents();
+
   setTimeout(() => {
     btn.disabled = false;
     btn.textContent = '🗑 Clear Data';
@@ -934,9 +956,10 @@ client.on('message', (topic, message) => {
 
 function applyWindowHydration(sensorId, points) {
   if (!charts[sensorId]) return;
+  const fresh = clearedAt ? points.filter(p => p.ts >= clearedAt) : points;
   const chart = charts[sensorId];
-  chart.data.labels           = points.map(p => fmt(p.ts));
-  chart.data.datasets[0].data = points.map(p => p.value);
+  chart.data.labels           = fresh.map(p => fmt(p.ts));
+  chart.data.datasets[0].data = fresh.map(p => p.value);
   chart.resetZoom();
   chart.update('none');
   const btn = document.getElementById('reset-zoom-' + domId(sensorId));
