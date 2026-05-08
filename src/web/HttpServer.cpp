@@ -130,6 +130,7 @@ static constexpr std::string_view DASHBOARD_HTML = R"HTML(<!DOCTYPE html>
 const charts     = {};
 const sensorMeta = {};
 const thresholds = {}; // sensorId -> {warn, crit}
+let clearedAt    = 0;  // epoch-ms of last clear; filters stale SSE snapshots
 const palette = [
   { border: '#38bdf8', bg: 'rgba(56,189,248,0.08)'  },
   { border: '#a78bfa', bg: 'rgba(167,139,250,0.08)' },
@@ -278,8 +279,10 @@ function updateDashboard(d) {
     }
     if (currentWindow === 'live') {
       const chart = charts[sensor.id];
-      chart.data.labels           = sensor.history.map(h => fmt(h.timestamp));
-      chart.data.datasets[0].data = sensor.history.map(h => h.value);
+      const history = clearedAt === 0 ? sensor.history
+        : sensor.history.filter(h => new Date(h.timestamp).getTime() >= clearedAt);
+      chart.data.labels           = history.map(h => fmt(h.timestamp));
+      chart.data.datasets[0].data = history.map(h => h.value);
       chart.update('none');
     }
   }
@@ -441,6 +444,7 @@ async function clearAllData() {
   try {
     const res = await fetch('/api/history', { method: 'DELETE' });
     if (res.ok) {
+      clearedAt = Date.now();
       for (const id of Object.keys(charts)) {
         charts[id].data.labels = [];
         charts[id].data.datasets[0].data = [];
