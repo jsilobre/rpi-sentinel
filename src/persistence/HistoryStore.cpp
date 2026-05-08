@@ -264,4 +264,14 @@ void HistoryStore::rotate()
     if (err) { sqlite3_free(err); }
 }
 
+void HistoryStore::clear_all()
+{
+    std::lock_guard lock(mutex_);
+    if (!db_) return;
+    char* err = nullptr;
+    sqlite3_exec(db_, "DELETE FROM readings;", nullptr, nullptr, &err);
+    if (err) { sqlite3_free(err); }
+    inserts_since_rotate_ = 0;
+}
+
 } // namespace rpi

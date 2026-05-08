@@ -156,7 +156,12 @@ int main(int argc, char* argv[])
             history_store,
             [&hub]() { return hub.build_config_json(); },
             on_config_change,
-            [&hub]() { hub.force_poll_all(); });
+            [&hub]() { hub.force_poll_all(); },
+            [&history_store, &web_state]() {
+                if (history_store) history_store->clear_all();
+                web_state.clear_history();
+                std::println("[HttpServer] History cleared by user request.");
+            });
         http_server->start();
     }
 
