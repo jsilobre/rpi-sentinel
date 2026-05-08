@@ -441,6 +441,11 @@ async function clearAllData() {
   try {
     const res = await fetch('/api/history', { method: 'DELETE' });
     if (res.ok) {
+      for (const id of Object.keys(charts)) {
+        charts[id].data.labels = [];
+        charts[id].data.datasets[0].data = [];
+        charts[id].update('none');
+      }
       btn.textContent = '✓ Cleared';
       setTimeout(() => { btn.disabled = false; btn.textContent = '🗑 Clear Data'; }, 2000);
     } else {
