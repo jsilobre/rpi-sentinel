@@ -168,6 +168,11 @@ By default this installs:
 |---|---|
 | `<prefix>/bin/rpi-sentinel` | the built executable |
 | `<prefix>/etc/rpi-sentinel/config.json` | repo's `config.example.json` (renamed) |
+| `<prefix>/lib/systemd/system/rpi-sentinel.service` | systemd unit (see below) |
+
+Disable the unit install with `-DRPI_SENTINEL_INSTALL_SYSTEMD_UNIT=OFF`, or
+override the destination with `-DRPI_SENTINEL_SYSTEMD_UNITDIR=/lib/systemd/system`
+(the path most distros expect for system-wide units).
 
 ### Option B — Cross-compilation (PC → ARM64)
 
@@ -202,6 +207,61 @@ cmake -B build-arm ... -DRPI_SENTINEL_INSTALL_CONFIG=$PWD/prod.json
 # Skip installing any config file (binary only)
 cmake -B build-arm ... -DRPI_SENTINEL_INSTALL_CONFIG=""
 ```
+
+### Running as a systemd service
+
+The bundled unit (`packaging/systemd/rpi-sentinel.service.in`) is path-substituted
+at configure time from `CMAKE_INSTALL_FULL_BINDIR` and
+`CMAKE_INSTALL_FULL_SYSCONFDIR`, then installed under
+`<prefix>/lib/systemd/system/rpi-sentinel.service`.
+
+```bash
+# Enable + start
+sudo systemctl daemon-reload
+sudo systemctl enable --now rpi-sentinel.service
+
+# Logs (follow)
+sudo journalctl -u rpi-sentinel.service -f
+
+# Status
+systemctl status rpi-sentinel.service
+```
+
+**State directory.** The unit uses `DynamicUser=yes` and `StateDirectory=rpi-sentinel`,
+which creates `/var/lib/rpi-sentinel` owned by a transient user at start.
+Set `history.db_path` to `/var/lib/rpi-sentinel/history.db` (or any relative
+path — `WorkingDirectory` is the state directory).
+
+**Secrets.** The unit loads `<sysconfdir>/rpi-sentinel/secrets.env` if present
+(mode 0600 recommended). Use it for the web auth token, OTLP auth header,
+MQTT password, etc.:
+
+```ini
+RPI_SENTINEL_WEB_TOKEN=replace-me
+GRAFANA_CLOUD_OTLP_AUTH=Basic base64(...)
+```
+
+**Hardware access.** DS18B20 / DHT11 / `cpu_temp` readers all go through
+`/sys` (read-only) and work out of the box under `DynamicUser=yes`. The
+`gpio_alert` handler writes to `/sys/class/gpio/...` which is owned by
+`root:gpio` on Raspberry Pi OS — DynamicUser cannot join the gpio group, so
+to enable that handler edit the unit:
+
+```ini
+# In an override (`systemctl edit rpi-sentinel.service`) or the unit itself:
+DynamicUser=no
+User=rpi-sentinel
+SupplementaryGroups=gpio
+ReadWritePaths=/sys/class/gpio
+```
+
+…and create the static `rpi-sentinel` user beforehand
+(`useradd --system --no-create-home --shell /usr/sbin/nologin -G gpio rpi-sentinel`).
+
+**Validation.** `systemd-analyze verify <prefix>/lib/systemd/system/rpi-sentinel.service`
+should return without errors.
+
+---
 
 ### Enabling the 1-Wire bus on RPi 5
 
