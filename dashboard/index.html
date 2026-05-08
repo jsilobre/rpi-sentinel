@@ -688,8 +688,10 @@ function organizeSensors() {
   cards.forEach((card, i) => {
     const col = i % cols;
     const row = Math.floor(i / cols);
-    card.style.left = (col * (DEFAULT_CARD_W + LAYOUT_GAP)) + 'px';
-    card.style.top  = (row * (DEFAULT_CARD_H + LAYOUT_GAP)) + 'px';
+    card.style.left   = (col * (DEFAULT_CARD_W + LAYOUT_GAP)) + 'px';
+    card.style.top    = (row * (DEFAULT_CARD_H + LAYOUT_GAP)) + 'px';
+    card.style.width  = DEFAULT_CARD_W + 'px';
+    card.style.height = DEFAULT_CARD_H + 'px';
   });
 
   saveLayout();
