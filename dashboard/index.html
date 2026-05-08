@@ -154,6 +154,7 @@
     <div class="spacer"></div>
     <span class="updated" id="updated"></span>
     <button class="icon-btn" id="refresh-btn" title="Force immediate sensor poll" disabled>↻ Refresh</button>
+    <button class="icon-btn" id="organize-btn" title="Arrange sensor windows alphabetically">⊞ Organize</button>
     <button class="icon-btn" id="config-btn" title="Configure thresholds">⚙ Config</button>
     <button class="icon-btn" id="theme-btn" title="Toggle theme">☾</button>
   </header>
@@ -667,6 +668,30 @@ function renderEvents() {
       </li>`;
   }).join('');
 }
+
+// ── Organize sensors alphabetically ───────────────────────────────────────────
+function organizeSensors() {
+  const grid  = document.getElementById('sensors-grid');
+  const cards = Array.from(grid.querySelectorAll('.card[data-sensor-id]'));
+  if (!cards.length) return;
+
+  cards.sort((a, b) => a.dataset.sensorId.localeCompare(b.dataset.sensorId));
+
+  const containerWidth = grid.clientWidth || 1200;
+  const cols = Math.max(1, Math.floor((containerWidth + LAYOUT_GAP) / (DEFAULT_CARD_W + LAYOUT_GAP)));
+
+  cards.forEach((card, i) => {
+    const col = i % cols;
+    const row = Math.floor(i / cols);
+    card.style.left = (col * (DEFAULT_CARD_W + LAYOUT_GAP)) + 'px';
+    card.style.top  = (row * (DEFAULT_CARD_H + LAYOUT_GAP)) + 'px';
+  });
+
+  saveLayout();
+  updateGridHeight();
+}
+
+document.getElementById('organize-btn').addEventListener('click', organizeSensors);
 
 // ── Refresh (force-poll) ───────────────────────────────────────────────────────
 document.getElementById('refresh-btn').addEventListener('click', () => {
