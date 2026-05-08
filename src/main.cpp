@@ -142,6 +142,11 @@ int main(int argc, char* argv[])
     if (mqtt_pub) {
         mqtt_pub->set_threshold_callback(on_config_change);
         mqtt_pub->set_force_poller([&hub]() { hub.force_poll_all(); });
+        mqtt_pub->set_data_clearer([&history_store, &web_state]() {
+            if (history_store) history_store->clear_all();
+            web_state.clear_history();
+            std::println("[MqttPublisher] History cleared by user request.");
+        });
         mqtt_pub->publish_config(hub.build_config_json());
     }
 #endif

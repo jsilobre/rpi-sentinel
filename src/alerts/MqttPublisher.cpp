@@ -115,6 +115,7 @@ void MqttPublisher::connect()
     history_req_topic_    = config_.topic_prefix + "/history/req";
     history_resp_prefix_  = config_.topic_prefix + "/history/resp/";
     cmd_refresh_topic_    = config_.topic_prefix + "/cmd/refresh";
+    cmd_clear_topic_      = config_.topic_prefix + "/cmd/clear";
 
     mosquitto_loop_start(mosq_);
     std::println("[MqttPublisher] Connecting to {}:{}…", addr.host, addr.port);
@@ -151,6 +152,7 @@ void MqttPublisher::handle_connect(int rc)
     mosquitto_subscribe(mosq_, nullptr, history_req_topic_.c_str(), /*qos=*/1);
     mosquitto_subscribe(mosq_, nullptr, status_topic_.c_str(), /*qos=*/1);
     mosquitto_subscribe(mosq_, nullptr, cmd_refresh_topic_.c_str(), /*qos=*/1);
+    mosquitto_subscribe(mosq_, nullptr, cmd_clear_topic_.c_str(),   /*qos=*/1);
     publish(status_topic_, R"({"status":"online"})", /*retain=*/true);
     std::println("[MqttPublisher] Connected and online");
 }
@@ -163,6 +165,11 @@ void MqttPublisher::set_threshold_callback(ThresholdCallback cb)
 void MqttPublisher::set_force_poller(ForcePoller cb)
 {
     force_poller_ = std::move(cb);
+}
+
+void MqttPublisher::set_data_clearer(DataClearer cb)
+{
+    data_clearer_ = std::move(cb);
 }
 
 void MqttPublisher::set_history_store(std::shared_ptr<HistoryStore> store)
@@ -198,6 +205,12 @@ void MqttPublisher::handle_message(const struct mosquitto_message* msg)
         std::println("[MqttPublisher] Force-poll requested via MQTT");
         if (force_poller_) force_poller_();
         publish(status_topic_, R"({"status":"online"})", /*retain=*/true);
+        return;
+    }
+
+    if (topic == cmd_clear_topic_) {
+        std::println("[MqttPublisher] Clear-history requested via MQTT");
+        if (data_clearer_) data_clearer_();
         return;
     }
 

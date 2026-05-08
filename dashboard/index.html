@@ -50,6 +50,8 @@
     .icon-btn{background:var(--surface-2);border:1px solid var(--border);color:var(--muted);
       padding:5px 10px;border-radius:6px;font-size:12px;cursor:pointer;display:inline-flex;align-items:center;gap:6px}
     .icon-btn:hover{color:var(--text);border-color:var(--muted-2)}
+    .icon-btn.danger{color:var(--err-fg);border-color:var(--err-bg)}
+    .icon-btn.danger:hover{background:var(--err-bg);border-color:var(--err-fg)}
     .updated{font-size:11px;color:var(--muted-2);margin-right:4px}
 
     main{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:16px;padding:16px 20px;align-items:start}
@@ -156,6 +158,7 @@
     <button class="icon-btn" id="refresh-btn" title="Force immediate sensor poll" disabled>↻ Refresh</button>
     <button class="icon-btn" id="organize-btn" title="Arrange sensor windows alphabetically">⊞ Organize</button>
     <button class="icon-btn" id="config-btn" title="Configure thresholds">⚙ Config</button>
+    <button class="icon-btn danger" id="clear-btn" title="Delete all stored history">🗑 Clear Data</button>
     <button class="icon-btn" id="theme-btn" title="Toggle theme">☾</button>
   </header>
 
@@ -705,6 +708,23 @@ document.getElementById('refresh-btn').addEventListener('click', () => {
     btn.dataset.busy = '';
     btn.textContent = '↻ Refresh';
     updateRefreshButtonState();
+  }, 2000);
+});
+
+// ── Clear all stored history ───────────────────────────────────────────────────
+document.getElementById('clear-btn').addEventListener('click', () => {
+  if (!confirm('Supprimer toutes les données enregistrées ? Cette action est irréversible.')) return;
+  const btn = document.getElementById('clear-btn');
+  if (!client || !client.connected) {
+    alert('Non connecté au broker MQTT.');
+    return;
+  }
+  btn.disabled = true;
+  btn.textContent = '⏳ Clearing…';
+  client.publish(`${TOPIC_PREFIX}/cmd/clear`, '{}', { qos: 1, retain: false });
+  setTimeout(() => {
+    btn.disabled = false;
+    btn.textContent = '🗑 Clear Data';
   }, 2000);
 });
 

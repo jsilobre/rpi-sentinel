@@ -21,6 +21,7 @@ public:
     using ThresholdCallback = std::function<std::expected<void, std::string>(
                                   const std::string& sensor_id, float warn, float crit)>;
     using ForcePoller       = std::function<void()>;
+    using DataClearer       = std::function<void()>;
 
     explicit MqttPublisher(const MqttConfig& config);
     ~MqttPublisher();
@@ -30,6 +31,7 @@ public:
 
     void set_threshold_callback(ThresholdCallback cb);
     void set_force_poller(ForcePoller cb);
+    void set_data_clearer(DataClearer cb);
     void set_history_store(std::shared_ptr<HistoryStore> store);
     void publish_config(const std::string& config_json);
 
@@ -52,6 +54,7 @@ private:
     mosquitto*                    mosq_ = nullptr;
     ThresholdCallback             threshold_cb_;
     ForcePoller                   force_poller_;
+    DataClearer                   data_clearer_;
     std::shared_ptr<HistoryStore> history_store_;
     std::string                   status_topic_;
     std::string                   config_topic_current_;
@@ -59,6 +62,7 @@ private:
     std::string                   history_req_topic_;
     std::string                   history_resp_prefix_;
     std::string                   cmd_refresh_topic_;
+    std::string                   cmd_clear_topic_;
 };
 
 } // namespace rpi
