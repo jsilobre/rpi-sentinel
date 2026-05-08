@@ -20,13 +20,15 @@ public:
     using ConfigUpdater = std::function<std::expected<void, std::string>(
                               const std::string& sensor_id, float warn, float crit)>;
     using ForcePoller   = std::function<void()>;
+    using DataClearer   = std::function<void()>;
 
     // history_store may be nullptr when persistence is disabled.
     HttpServer(uint16_t port, const WebState& state,
                std::shared_ptr<const HistoryStore> history_store,
                ConfigGetter  config_getter,
                ConfigUpdater config_updater,
-               ForcePoller   force_poller);
+               ForcePoller   force_poller,
+               DataClearer   data_clearer);
     ~HttpServer();
 
     void start();
@@ -41,6 +43,7 @@ private:
     ConfigGetter                         config_getter_;
     ConfigUpdater                        config_updater_;
     ForcePoller                          force_poller_;
+    DataClearer                          data_clearer_;
     std::unique_ptr<httplib::Server>     server_;
     std::thread                          thread_;
 };

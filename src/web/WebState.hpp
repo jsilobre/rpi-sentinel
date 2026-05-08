@@ -35,6 +35,9 @@ public:
     void prime_history(const std::string& sensor_id, const std::string& metric,
                        std::vector<HistoryPoint> points);
 
+    // Clears all in-memory history and recent alerts.
+    void clear_history();
+
     struct SensorSnapshot {
         std::string               id;
         std::string               metric;

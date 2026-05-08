@@ -44,6 +44,9 @@ public:
     // Drops rows older than retention and trims per-sensor row count.
     void rotate();
 
+    // Deletes all rows from the database.
+    void clear_all();
+
 private:
     void open();
     void close();

@@ -65,6 +65,19 @@ void WebState::push_alert(const SensorEvent& event)
     cv_.notify_all();
 }
 
+void WebState::clear_history()
+{
+    {
+        std::lock_guard lock(mutex_);
+        for (auto& [id, state] : sensor_states_) {
+            state.history.clear();
+        }
+        events_.clear();
+    }
+    version_.fetch_add(1, std::memory_order_release);
+    cv_.notify_all();
+}
+
 uint64_t WebState::version() const noexcept
 {
     return version_.load(std::memory_order_acquire);
