@@ -19,7 +19,7 @@ static void write_file(const std::filesystem::path& path, const std::string& con
 TEST(SGP30Reader, ReadsEco2)
 {
     auto dir = make_iio_dir("ReadsEco2");
-    write_file(dir / "in_concentration_co2_input", "823\n");
+    write_file(dir / "in_concentration_co2_input", "0.000823\n");
 
     rpi::SGP30Reader reader(dir.string(), "sgp30-eco2", "eco2");
     auto result = reader.read();
@@ -33,7 +33,7 @@ TEST(SGP30Reader, ReadsEco2)
 TEST(SGP30Reader, ReadsTvoc)
 {
     auto dir = make_iio_dir("ReadsTvoc");
-    write_file(dir / "in_concentration_voc_input", "47\n");
+    write_file(dir / "in_concentration_voc_input", "0.000000047\n");
 
     rpi::SGP30Reader reader(dir.string(), "sgp30-tvoc", "tvoc");
     auto result = reader.read();
@@ -47,7 +47,7 @@ TEST(SGP30Reader, ReadsTvoc)
 TEST(SGP30Reader, ReadsZeroEco2)
 {
     auto dir = make_iio_dir("ReadsZeroEco2");
-    write_file(dir / "in_concentration_co2_input", "400\n");
+    write_file(dir / "in_concentration_co2_input", "0.000400\n");
 
     rpi::SGP30Reader reader(dir.string(), "sgp30-eco2", "eco2");
     auto result = reader.read();
@@ -96,7 +96,7 @@ TEST(SGP30Reader, ReadFailureOnNonNumericContent)
 TEST(SGP30Reader, ReadsHighCo2Value)
 {
     auto dir = make_iio_dir("ReadsHighCo2Value");
-    write_file(dir / "in_concentration_co2_input", "5000\n");
+    write_file(dir / "in_concentration_co2_input", "0.005000\n");
 
     rpi::SGP30Reader reader(dir.string(), "sgp30-eco2", "eco2");
     auto result = reader.read();
