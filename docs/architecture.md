@@ -15,27 +15,26 @@
 ```
 ┌─────────────────────────────────────────────────────────┐
 │                        main.cpp                         │
-│  (loads config, opens HistoryStore + primes WebState,   │
-│   creates EventBus + handlers + MonitoringHub +         │
-│   HttpServer, waits for shutdown signal)                │
+│  (loads config, opens HistoryStore, creates EventBus +  │
+│   handlers + MonitoringHub, waits for shutdown signal)  │
 └────────────┬───────────────────────────────┬────────────┘
              │                               │
              ▼                               ▼
 ┌────────────────────────┐       ┌──────────────────────────┐
 │   MONITORING           │       │   ALERTS                 │
 │  MonitoringHub         │──────►│  IAlertHandler           │
-│  ThresholdMonitor [×N] │  via  │  LogAlert / WebAlert     │
+│  ThresholdMonitor [×N] │  via  │  LogAlert                │
 │  Config / MonitorConfig│  bus  │  MqttPublisher           │
 └────────┬───────────────┘       │  GpioAlert               │
          │                       │  SqliteHistoryHandler    │
          │                       └──────────┬───────────────┘
          │ read()                           │
          ▼                                 ▼
-┌────────────────────┐           ┌───────────────────────┐
-│   SENSORS          │           │   WEB                 │
-│  ISensorReader     │           │  WebState             │
-│  DS18B20Reader     │           │  HttpServer           │
-│  DHT11Reader       │           └───────────────────────┘
+┌────────────────────┐
+│   SENSORS          │
+│  ISensorReader     │
+│  DS18B20Reader     │
+│  DHT11Reader       │
 │  CpuTempReader     │
 │  SimulatedSensor   │
 └────────────────────┘
@@ -56,7 +55,6 @@
 ```
 main → monitoring → sensors
                   → events → alerts → persistence
-                  → web → persistence (read-only at startup)
 ```
 
 No lower layer depends on a higher layer.
@@ -169,8 +167,6 @@ struct Config {
     std::vector<SensorConfig> sensors;     // one entry per sensor to monitor
     float                     hysteresis;
     std::chrono::milliseconds poll_interval;
-    bool                      web_enabled;
-    uint16_t                  web_port;
     GpioConfig                gpio_alert;
 };
 ```
@@ -206,17 +202,7 @@ The `warn_active_` / `crit_active_` state is maintained across polling cycles wi
 
 ---
 
-### 3.5 `web` layer
-
-| File | Role |
-|---|---|
-| `WebState.hpp/cpp` | Thread-safe in-memory state: current value, status, and up to 120 readings of history per sensor. `prime_history()` repopulates a sensor's history at startup from `HistoryStore` so `/api/state` is non-empty after a daemon restart. |
-| `WebAlert.hpp/cpp` | `IAlertHandler` implementation that feeds `WebState` on each event. |
-| `HttpServer.hpp/cpp` | Embedded HTTP server (cpp-httplib). Serves the dashboard HTML and JSON APIs. |
-
----
-
-### 3.6 `persistence` layer
+### 3.5 `persistence` layer
 
 | File | Role |
 |---|---|
@@ -224,17 +210,6 @@ The `warn_active_` / `crit_active_` state is maintained across polling cycles wi
 | `SqliteHistoryHandler.hpp/cpp` | `IAlertHandler` that writes every `Reading` event to `HistoryStore`. Threshold events are ignored. |
 
 The DB lives at `data/history.db` by default (configurable). Retention and per-sensor row caps come from the `history` block in `config.json`. See [persistence.md](persistence.md) for the schema, rotation policy, and the MQTT history-on-demand protocol used by the cloud dashboard.
-
-**Endpoints:**
-
-| Endpoint | Method | Description |
-|---|---|---|
-| `/` | GET | Dashboard HTML (Chart.js, auto-refresh every 2 s) |
-| `/api/state` | GET | Current readings, history, and recent alerts (JSON) |
-| `/api/config` | GET | Sensor thresholds |
-| `/api/config` | POST | Update thresholds at runtime (no restart required) |
-
-The dashboard automatically creates one card per sensor with units (`°C`, `%`, `hPa`) and renders motion as a step chart with `Detected` / `Clear` labels.
 
 ---
 
@@ -250,9 +225,8 @@ The dashboard automatically creates one card per sensor with units (`°C`, `%`, 
        │ implements             ┌───────┴──────────┐
    ┌───┴──────────┐             │   LogAlert       │
    │ DS18B20Reader│             ├──────────────────┤
-   ├──────────────┤             │   WebAlert       │
-   │ DHT11Reader  │             ├──────────────────┤
    ├──────────────┤             │   MqttPublisher  │
+   │ DHT11Reader  │             ├──────────────────┤
    │CpuTempReader │             ├──────────────────┤
    ├──────────────┤             │   GpioAlert      │
    │SimulatedSensor│            └──────────────────┘

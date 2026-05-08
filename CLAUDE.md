@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**rpi-sentinel** is a C++23 real-time environmental sensor monitoring daemon for Raspberry Pi. It polls hardware sensors (DS18B20 temperature, DHT11 temperature/humidity) or simulated sensors in parallel threads, evaluates thresholds with hysteresis, and dispatches events to a handler chain that logs, stores to SQLite, publishes via MQTT, and updates a local web dashboard.
+**rpi-sentinel** is a C++23 real-time environmental sensor monitoring daemon for Raspberry Pi. It polls hardware sensors (DS18B20 temperature, DHT11 temperature/humidity) or simulated sensors in parallel threads, evaluates thresholds with hysteresis, and dispatches events to a handler chain that logs, stores to SQLite, and publishes via MQTT to a cloud dashboard (GitHub Pages + HiveMQ).
 
 ## Documentation
 
@@ -67,7 +67,6 @@ Five layers communicate only through abstract interfaces. The dependency rule is
 ```
 main → monitoring → sensors
                   → events → alerts → persistence
-                  → web → persistence (read-only at startup)
 ```
 
 Each layer is compiled as a static library linked into the final `rpi-sentinel` executable. See `docs/architecture.md` for the full class diagram.
@@ -86,20 +85,10 @@ Each `ThresholdMonitor` runs in its own `std::jthread`:
 
 1. Parse CLI args, load `config.json` via `ConfigLoader`
 2. Construct `EventBus` and register all enabled handlers
-3. If persistence enabled: open `HistoryStore`, prime `WebState` with last 120 readings per sensor from SQLite
+3. If persistence enabled: open `HistoryStore`
 4. Construct `MonitoringHub` → creates sensors + monitors from config
 5. `hub.start()` → spawns jthreads
-6. Start `HttpServer` if `web_enabled`
-7. Block on SIGINT/SIGTERM, then `hub.stop()` + cleanup
-
-### Web API Endpoints
-
-| Endpoint | Method | Description |
-|---|---|---|
-| `/` | GET | Dashboard HTML (Chart.js, auto-refresh every 2 s) |
-| `/api/state` | GET | Current readings, 120-point history, and recent alerts (JSON) |
-| `/api/config` | GET | Sensor thresholds |
-| `/api/config` | POST | Update thresholds at runtime without restart |
+6. Block on SIGINT/SIGTERM, then `hub.stop()` + cleanup
 
 ### MQTT History-on-Demand Protocol
 
@@ -147,8 +136,6 @@ Copy `config.example.json` to `config.json`. Key fields:
 {
   "hysteresis": 2.0,
   "poll_interval_ms": 5000,
-  "web_enabled": true,
-  "web_port": 8080,
   "mqtt": { "enabled": false, "broker_url": "", "username": "", "password": "", "topic_prefix": "rpi" },
   "history": { "enabled": true, "db_path": "data/history.db", "retention_days": 7, "max_points_per_sensor": 50000 },
   "sensors": [

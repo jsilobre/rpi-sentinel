@@ -70,9 +70,6 @@ auto load_config(const std::filesystem::path& path) -> std::expected<Config, std
         if (j.contains("hysteresis"))       cfg.hysteresis    = j["hysteresis"].get<float>();
         if (j.contains("poll_interval_ms")) cfg.poll_interval = std::chrono::milliseconds{
                                                 j["poll_interval_ms"].get<int>()};
-        if (j.contains("web_enabled"))      cfg.web_enabled   = j["web_enabled"].get<bool>();
-        if (j.contains("web_port"))         cfg.web_port      = j["web_port"].get<uint16_t>();
-
         if (j.contains("mqtt") && j["mqtt"].is_object()) {
             const auto& m = j["mqtt"];
             if (m.contains("enabled"))      cfg.mqtt.enabled      = m["enabled"].get<bool>();
@@ -146,8 +143,6 @@ auto save_config(const std::filesystem::path& path, const Config& config) -> std
     nlohmann::json j;
     j["hysteresis"]       = config.hysteresis;
     j["poll_interval_ms"] = static_cast<int>(config.poll_interval.count());
-    j["web_enabled"]      = config.web_enabled;
-    j["web_port"]         = config.web_port;
     j["mqtt"] = {
         {"enabled",      config.mqtt.enabled},
         {"broker_url",   config.mqtt.broker_url},
