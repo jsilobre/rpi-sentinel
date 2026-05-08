@@ -3,9 +3,6 @@
     "hysteresis": 2.0,
     // Sensor polling interval (milliseconds)
     "poll_interval_ms": 2000,
-    // Web dashboard
-    "web_enabled": true,
-    "web_port": 8080,
     // MQTT cloud publishing (HiveMQ Cloud or any MQTT broker)
     // Fill in your credentials and set "enabled": true to activate
     "mqtt": {

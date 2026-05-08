@@ -5,13 +5,10 @@
 The cloud dashboard (`dashboard/index.html`, hosted on GitHub Pages) is a pure
 browser-side MQTT subscriber. Without persistence, refreshing the page wipes
 the history and the user has to wait for new readings to redraw the charts.
-The daemon's local `WebState` had the same problem across daemon restarts.
 
-The persistence layer addresses both:
+The persistence layer addresses this:
 
 - writes every `Reading` event to a local SQLite database;
-- repopulates `WebState` at startup so the local dashboard (`/api/state`) is
-  non-empty after a restart;
 - exposes a request/response protocol over MQTT so the cloud dashboard can
   hydrate its charts on page load without needing a separate backend.
 
@@ -89,23 +86,7 @@ bottleneck, a queue + writer thread can be slipped in entirely inside
 
 ---
 
-## 3. Startup priming
-
-In `main.cpp`, after loading `config.json` and *before* starting
-`MonitoringHub`, the daemon reads the most recent
-`WebState::MAX_HISTORY` (=120) points per configured sensor and calls
-`WebState::prime_history(id, metric, points)`. After that the local
-`/api/state` endpoint returns the same charts as before the previous restart.
-
-```
-config → HistoryStore::recent(sensor, 120) → WebState::prime_history(...)
-                                             ↓
-                                     /api/state (HTTP) — non-empty immediately
-```
-
----
-
-## 4. MQTT history-on-demand
+## 3. MQTT history-on-demand
 
 The cloud dashboard requests history per sensor as soon as it creates a chart
 card. The daemon's existing `MqttPublisher` is extended with a request/response

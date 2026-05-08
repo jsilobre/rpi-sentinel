@@ -21,10 +21,10 @@ config.json
                                     │
                                     │ dispatch(SensorEvent)
                                     ▼
-                               EventBus ──► LogAlert / WebAlert / SqliteHistoryHandler / MqttPublisher
+                               EventBus ──► LogAlert / SqliteHistoryHandler / MqttPublisher
 ```
 
-The project is structured into **5 independent layers** (`sensors`, `events`, `monitoring`,
+The project is structured into **4 independent layers** (`sensors`, `events`, `monitoring`,
 `alerts`, `persistence`) connected through abstract interfaces. `MonitoringHub` orchestrates
-N sensors and monitors from the JSON config — `main.cpp` only bootstraps, primes the web
-state from persisted history, and waits for a shutdown signal.
+N sensors and monitors from the JSON config — `main.cpp` only bootstraps and waits for a
+shutdown signal.

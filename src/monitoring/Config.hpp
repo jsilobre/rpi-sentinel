@@ -56,8 +56,6 @@ struct Config {
     std::vector<SensorConfig> sensors;
     float                     hysteresis    = 2.0f;
     std::chrono::milliseconds poll_interval {5000};
-    bool                      web_enabled   = true;
-    uint16_t                  web_port      = 8080;
     MqttConfig                mqtt;
     HistoryConfig             history;
     OtlpConfig                otlp;

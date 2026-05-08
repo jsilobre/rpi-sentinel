@@ -6,13 +6,12 @@
 main()
   │
   ├─ 1. Loads Config from JSON
-  │       └─ list of SensorConfig + global params (hysteresis, interval, web)
+  │       └─ list of SensorConfig + global params (hysteresis, interval)
   │
   ├─ 2. Creates EventBus
   │
   ├─ 3. Registers handlers
   │       └─ bus.register_handler(LogAlert)
-  │       └─ bus.register_handler(WebAlert)
   │       └─ bus.register_handler(GpioAlert)   (if gpio_alert.enabled)
   │
   ├─ 4. Creates MonitoringHub(bus, config)
@@ -24,9 +23,7 @@ main()
   │       └─ for each ThresholdMonitor: monitor.start()
   │            └─ launches std::jthread → run(stop_token)
   │
-  ├─ 6. HttpServer::start()  (if web_enabled)
-  │
-  └─ 7. Main loop: waits for SIGINT / SIGTERM
+  └─ 6. Main loop: waits for SIGINT / SIGTERM
           └─ hub.stop() → stops all monitors
 ```
 
@@ -73,7 +70,7 @@ Each `ThresholdMonitor` runs its own `std::jthread`, polling its dedicated senso
 ## 3. SensorEvent lifecycle
 
 ```
-ThresholdMonitor[N]             EventBus               LogAlert / WebAlert
+ThresholdMonitor[N]             EventBus               LogAlert
       │                             │                          │
       │──── dispatch(event) ───────►│                          │
       │                             │──on_event(event) ────────►│
@@ -189,16 +186,13 @@ ThresholdMonitor::run()
 EventBus::dispatch(SensorEvent::Reading)
    │
    ├─► LogAlert              (stdout, optional)
-   ├─► WebAlert               → WebState (in-memory, 120 points/sensor)
    ├─► SqliteHistoryHandler   → HistoryStore::insert()  (SQLite WAL, durable)
    ├─► MqttPublisher          → rpi/{sensor}/reading    (QoS=1, retain=true)
    └─► GpioAlert              → /sys/class/gpio/gpio{N}/value  (if gpio_alert.enabled)
 ```
 
-At daemon startup, `main.cpp` walks each configured sensor and primes `WebState`
-from `HistoryStore::recent(MAX_HISTORY)` so `/api/state` returns a non-empty
-history immediately after a restart. The cloud dashboard hydrates separately
-via the MQTT history-on-demand protocol — see [persistence.md](persistence.md).
+The cloud dashboard hydrates via the MQTT history-on-demand protocol on page load —
+see [persistence.md](persistence.md).
 
 ---
 

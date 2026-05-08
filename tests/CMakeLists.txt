@@ -14,7 +14,6 @@ add_executable(rpi_tests
     test_config_loader.cpp
     test_gpio_alert.cpp
     test_history_store.cpp
-    test_web_state_hydration.cpp
     test_sgp30_reader.cpp
 )
 
@@ -22,7 +21,6 @@ target_link_libraries(rpi_tests PRIVATE
     alerts
     monitoring
     persistence
-    web
     GTest::gtest_main
 )
 

@@ -6,10 +6,6 @@
 #include "alerts/LogAlert.hpp"
 #include "persistence/HistoryStore.hpp"
 #include "persistence/SqliteHistoryHandler.hpp"
-#include "web/WebAlert.hpp"
-#include "web/WebState.hpp"
-#include "web/HttpServer.hpp"
-
 #ifdef ENABLE_MQTT
 #include "alerts/MqttPublisher.hpp"
 #endif
@@ -47,10 +43,8 @@ int main(int argc, char* argv[])
 
     std::println("[main] Config loaded from '{}'", config_path.string());
 
-    rpi::WebState web_state;
     rpi::EventBus bus;
     bus.register_handler(std::make_shared<rpi::LogAlert>());
-    bus.register_handler(std::make_shared<rpi::WebAlert>(web_state));
 
     if (result->gpio_alert.enabled) {
         bus.register_handler(std::make_shared<rpi::GpioAlert>(result->gpio_alert.pin));
@@ -68,22 +62,6 @@ int main(int argc, char* argv[])
         } catch (const std::exception& e) {
             std::println(stderr, "[main] History store error: {}", e.what());
             history_store.reset();
-        }
-    }
-
-    if (history_store) {
-        for (const auto& s : result->sensors) {
-            auto pts = history_store->recent(s.id, rpi::WebState::MAX_HISTORY);
-            std::vector<rpi::HistoryPoint> hp;
-            hp.reserve(pts.size());
-            for (const auto& p : pts) {
-                hp.push_back({p.value,
-                    std::chrono::system_clock::time_point{
-                        std::chrono::milliseconds{p.ts_ms}}});
-            }
-            if (!hp.empty()) {
-                web_state.prime_history(s.id, s.metric, std::move(hp));
-            }
         }
     }
 
@@ -142,9 +120,8 @@ int main(int argc, char* argv[])
     if (mqtt_pub) {
         mqtt_pub->set_threshold_callback(on_config_change);
         mqtt_pub->set_force_poller([&hub]() { hub.force_poll_all(); });
-        mqtt_pub->set_data_clearer([&history_store, &web_state]() {
+        mqtt_pub->set_data_clearer([&history_store]() {
             if (history_store) history_store->clear_all();
-            web_state.clear_history();
             std::println("[MqttPublisher] History cleared by user request.");
         });
         mqtt_pub->publish_config(hub.build_config_json());
@@ -152,23 +129,6 @@ int main(int argc, char* argv[])
 #endif
 
     hub.start();
-
-    std::unique_ptr<rpi::HttpServer> http_server;
-    if (hub.get_config_snapshot().web_enabled) {
-        http_server = std::make_unique<rpi::HttpServer>(
-            hub.get_config_snapshot().web_port,
-            web_state,
-            history_store,
-            [&hub]() { return hub.build_config_json(); },
-            on_config_change,
-            [&hub]() { hub.force_poll_all(); },
-            [&history_store, &web_state]() {
-                if (history_store) history_store->clear_all();
-                web_state.clear_history();
-                std::println("[HttpServer] History cleared by user request.");
-            });
-        http_server->start();
-    }
 
     std::println("[main] Monitors started. Press Ctrl+C to stop.");
 
@@ -181,7 +141,6 @@ int main(int argc, char* argv[])
     if (mqtt_pub) mqtt_pub->disconnect();
 #endif
     hub.stop();
-    if (http_server) http_server->stop();
 #ifdef ENABLE_OTLP
     // Reset after monitors have stopped so any final dispatches are
     // queued, then destruction flushes the SDK providers.
