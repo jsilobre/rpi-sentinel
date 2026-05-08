@@ -24,14 +24,16 @@ auto SGP30Reader::read() -> std::expected<SensorReading, SensorError>
     if (!f.is_open())
         return std::unexpected(SensorError::DeviceNotFound);
 
+    // IIO concentration values are dimensionless fractions: multiply to get ppm/ppb.
     double raw{};
     if (!(f >> raw))
         return std::unexpected(SensorError::ReadFailure);
 
+    double scale = (metric_ == "eco2") ? 1e6 : 1e9;
     return SensorReading{
         .sensor_id = sensor_id_,
         .metric    = metric_,
-        .value     = static_cast<float>(raw),
+        .value     = static_cast<float>(raw * scale),
     };
 }
 
