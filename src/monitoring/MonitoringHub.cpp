@@ -3,6 +3,7 @@
 #include "../sensors/CpuTempReader.hpp"
 #include "../sensors/DS18B20Reader.hpp"
 #include "../sensors/DHT11Reader.hpp"
+#include "../sensors/SGP30Reader.hpp"
 #include "../sensors/SimulatedSensor.hpp"
 
 #include <format>
@@ -18,6 +19,8 @@ static auto make_sensor(const SensorConfig& sc) -> std::unique_ptr<ISensorReader
             return std::make_unique<DS18B20Reader>(sc.device_path, sc.id, sc.metric);
         case SensorType::DHT11:
             return std::make_unique<DHT11Reader>(sc.device_path, sc.id, sc.metric);
+        case SensorType::SGP30:
+            return std::make_unique<SGP30Reader>(sc.device_path, sc.id, sc.metric);
         case SensorType::Simulated:
             return std::make_unique<SimulatedSensor>(sc.id, sc.metric,
                 SimulatedSensor::make_for_metric(sc.metric));

@@ -91,6 +91,25 @@
             "metric": "motion",
             "threshold_warn": 0.5,
             "threshold_crit": 0.9
+        },
+        {
+            // SGP30 air quality sensor (I2C via Linux IIO driver).
+            // device_path: IIO device directory, e.g. /sys/bus/iio/devices/iio:device0
+            // Load the kernel module: sudo modprobe sgp30
+            "id": "sgp30-eco2",
+            "type": "sgp30",
+            "metric": "eco2",
+            "device_path": "/sys/bus/iio/devices/iio:device0",
+            "threshold_warn": 1000.0,
+            "threshold_crit": 2000.0
+        },
+        {
+            "id": "sgp30-tvoc",
+            "type": "sgp30",
+            "metric": "tvoc",
+            "device_path": "/sys/bus/iio/devices/iio:device0",
+            "threshold_warn": 150.0,
+            "threshold_crit": 500.0
         }
     ]
 }
