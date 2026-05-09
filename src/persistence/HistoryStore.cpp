@@ -196,26 +196,38 @@ std::vector<StoredPoint> HistoryStore::since(std::string_view sensor_id,
                                              int64_t since_ts_ms, int limit) const
 {
     std::lock_guard lock(mutex_);
-    std::vector<StoredPoint> out;
-    if (!db_ || limit <= 0) return out;
+    std::vector<StoredPoint> raw;
+    if (!db_ || limit <= 0) return raw;
 
     sqlite3_stmt* stmt = nullptr;
     int rc = sqlite3_prepare_v2(db_,
         "SELECT ts, value FROM readings WHERE sensor_id = ? AND ts >= ? "
-        "ORDER BY ts ASC LIMIT ?;",
+        "ORDER BY ts ASC;",
         -1, &stmt, nullptr);
-    if (rc != SQLITE_OK) return out;
+    if (rc != SQLITE_OK) return raw;
 
     sqlite3_bind_text (stmt, 1, sensor_id.data(), static_cast<int>(sensor_id.size()), SQLITE_TRANSIENT);
     sqlite3_bind_int64(stmt, 2, since_ts_ms);
-    sqlite3_bind_int  (stmt, 3, limit);
 
-    out.reserve(static_cast<size_t>(limit));
     while (sqlite3_step(stmt) == SQLITE_ROW) {
-        out.push_back({sqlite3_column_int64(stmt, 0),
+        raw.push_back({sqlite3_column_int64(stmt, 0),
                        static_cast<float>(sqlite3_column_double(stmt, 1))});
     }
     sqlite3_finalize(stmt);
+
+    if (static_cast<int>(raw.size()) <= limit) return raw;
+    if (limit == 1) return {raw.back()};
+
+    // Window holds more points than the caller can ship; downsample uniformly so
+    // the returned curve still spans the whole window instead of just its first
+    // few minutes. First and last samples are always preserved.
+    std::vector<StoredPoint> out;
+    out.reserve(static_cast<size_t>(limit));
+    const double stride = static_cast<double>(raw.size() - 1) / (limit - 1);
+    for (int i = 0; i < limit - 1; ++i) {
+        out.push_back(raw[static_cast<size_t>(i * stride)]);
+    }
+    out.push_back(raw.back());
     return out;
 }
 
