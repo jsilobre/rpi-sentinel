@@ -83,6 +83,28 @@ TEST_F(HistoryStoreTest, SinceFiltersByTimestamp)
     EXPECT_FLOAT_EQ(pts.back().value,  9.0f);
 }
 
+TEST_F(HistoryStoreTest, SinceDownsamplesWhenLimitExceeded)
+{
+    HistoryStore store(path_, 7, 5000);
+    auto t0 = clock_t_::now();
+    for (int i = 0; i < 1000; ++i) {
+        store.insert("s1", "temperature", static_cast<float>(i),
+                     t0 + std::chrono::seconds{i});
+    }
+    const auto cutoff = std::chrono::duration_cast<std::chrono::milliseconds>(
+        t0.time_since_epoch()).count();
+
+    auto pts = store.since("s1", cutoff, 100);
+    ASSERT_EQ(pts.size(), 100u);
+    // Endpoints must be preserved so the curve spans the full window.
+    EXPECT_FLOAT_EQ(pts.front().value, 0.0f);
+    EXPECT_FLOAT_EQ(pts.back().value,  999.0f);
+    // Samples must remain monotonic in time.
+    for (size_t i = 1; i < pts.size(); ++i) {
+        EXPECT_GT(pts[i].ts_ms, pts[i - 1].ts_ms);
+    }
+}
+
 TEST_F(HistoryStoreTest, MetricForReturnsLastMetric)
 {
     HistoryStore store(path_, 7, 1000);
