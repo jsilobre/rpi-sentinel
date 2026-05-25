@@ -1,0 +1,26 @@
+[Unit]
+Description=Claude usage publisher (feeds rpi-sentinel-display)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Adjust the user and paths to your Raspberry Pi / this repo's checkout.
+User=pi
+WorkingDirectory=/home/pi/rpi-sentinel/companion
+Environment=MQTT_HOST=your-broker.example.com
+Environment=MQTT_PORT=8883
+Environment=MQTT_USER=youruser
+Environment=MQTT_PASS=yourpass
+Environment=MQTT_PREFIX=rpi
+Environment=MQTT_TLS=true
+Environment=POLL_SECONDS=300
+# Optional caps so the display shows a percentage instead of raw tokens:
+# Environment=FIVE_HOUR_LIMIT=0
+# Environment=WEEKLY_LIMIT=0
+ExecStart=/usr/bin/python3 usage_publisher.py
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
