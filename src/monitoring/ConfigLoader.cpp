@@ -103,6 +103,14 @@ auto load_config(const std::filesystem::path& path) -> std::expected<Config, std
             if (g.contains("pin"))     cfg.gpio_alert.pin     = g["pin"].get<int>();
         }
 
+        if (j.contains("cloud_storage") && j["cloud_storage"].is_object()) {
+            const auto& c = j["cloud_storage"];
+            if (c.contains("enabled"))     cfg.cloud_storage.enabled     = c["enabled"].get<bool>();
+            if (c.contains("endpoint"))    cfg.cloud_storage.endpoint    = c["endpoint"].get<std::string>();
+            if (c.contains("api_key_env")) cfg.cloud_storage.api_key_env = c["api_key_env"].get<std::string>();
+            if (c.contains("api_key"))     cfg.cloud_storage.api_key     = c["api_key"].get<std::string>();
+        }
+
         if (cfg.gpio_alert.pin < 0)
             return std::unexpected("gpio_alert.pin must be >= 0");
 
@@ -119,6 +127,8 @@ auto load_config(const std::filesystem::path& path) -> std::expected<Config, std
             return std::unexpected("otlp.enabled=true but otlp.endpoint is empty");
         if (cfg.otlp.export_interval_ms <= 0)
             return std::unexpected("otlp.export_interval_ms must be > 0");
+        if (cfg.cloud_storage.enabled && cfg.cloud_storage.endpoint.empty())
+            return std::unexpected("cloud_storage.enabled=true but cloud_storage.endpoint is empty");
 
         return cfg;
 
@@ -169,6 +179,12 @@ auto save_config(const std::filesystem::path& path, const Config& config) -> std
         {"enabled", config.gpio_alert.enabled},
         {"pin",     config.gpio_alert.pin},
     };
+    j["cloud_storage"] = {
+        {"enabled",     config.cloud_storage.enabled},
+        {"endpoint",    config.cloud_storage.endpoint},
+        {"api_key_env", config.cloud_storage.api_key_env},
+    };
+    // Never serialize api_key into the saved file; env var is canonical.
 
     nlohmann::json sensors = nlohmann::json::array();
     for (const auto& sc : config.sensors) {

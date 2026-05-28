@@ -22,6 +22,19 @@ else()
     message(STATUS "MQTT support: OFF")
 endif()
 
+# Cloud storage — HTTP POST to Cloudflare Workers via libcurl
+find_package(CURL QUIET)
+option(ENABLE_CLOUD_STORAGE "Enable cloud storage via libcurl HTTP POST to Cloudflare Worker" ${CURL_FOUND})
+
+if(ENABLE_CLOUD_STORAGE)
+    if(NOT CURL_FOUND)
+        message(FATAL_ERROR "ENABLE_CLOUD_STORAGE=ON but libcurl not found. Install libcurl4-openssl-dev.")
+    endif()
+    message(STATUS "Cloud storage: ON (libcurl ${CURL_VERSION_STRING})")
+else()
+    message(STATUS "Cloud storage: OFF")
+endif()
+
 FetchContent_Declare(
     nlohmann_json
     GIT_REPOSITORY https://github.com/nlohmann/json.git

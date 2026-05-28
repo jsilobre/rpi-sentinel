@@ -30,6 +30,15 @@
         "service_instance_id": "rpi-sentinel-1",
         "export_interval_ms": 5000
     },
+    // Cloud storage: persists all sensor readings to Cloudflare D1 via HTTP POST.
+    // The API key is read from the env var named in 'api_key_env' (preferred);
+    // falls back to literal 'api_key' for development only (never commit this).
+    // Deploy the Cloudflare Worker from the worker/ directory to get the endpoint URL.
+    "cloud_storage": {
+        "enabled": false,
+        "endpoint": "https://rpi-sentinel-worker.YOUR_ACCOUNT.workers.dev",
+        "api_key_env": "CLOUD_API_KEY"
+    },
     // GPIO output alert: drives a BCM pin HIGH on threshold breach, LOW on recovery.
     // Uses the Linux sysfs interface — no external library needed.
     // Set "enabled": true and choose the BCM pin number (e.g. 17 → physical pin 11).
