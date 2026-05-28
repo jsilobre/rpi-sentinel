@@ -169,6 +169,13 @@
     <button class="time-btn" data-w="6h"   type="button">6h</button>
     <button class="time-btn" data-w="24h"  type="button">24h</button>
     <button class="time-btn" data-w="7d"   type="button">7d</button>
+    <span id="custom-range-wrap" style="display:none;align-items:center;gap:6px;margin-left:8px">
+      <span style="font-size:11px;color:var(--muted)">From</span>
+      <input type="datetime-local" id="custom-from" class="config-input" style="padding:2px 6px;font-size:11px;width:155px">
+      <span style="font-size:11px;color:var(--muted)">To</span>
+      <input type="datetime-local" id="custom-to"   class="config-input" style="padding:2px 6px;font-size:11px;width:155px">
+      <button class="time-btn" id="custom-apply-btn" type="button">Apply</button>
+    </span>
   </div>
 
   <main>
@@ -207,10 +214,13 @@
 <script>
 // ── Configuration ──────────────────────────────────────────────────────────────
 // Replace with your HiveMQ Cloud cluster and subscriber (read-only) credentials.
-const BROKER_WSS   = '__MQTT_BROKER_WSS__';
-const MQTT_USER    = '__MQTT_USER__';
-const MQTT_PASS    = '__MQTT_PASS__';
-const TOPIC_PREFIX = 'rpi';
+const BROKER_WSS       = '__MQTT_BROKER_WSS__';
+const MQTT_USER        = '__MQTT_USER__';
+const MQTT_PASS        = '__MQTT_PASS__';
+const TOPIC_PREFIX     = 'rpi';
+const CLOUD_WORKER_URL = '__CLOUD_WORKER_URL__';
+// Historical windows use the Cloudflare Worker when the URL is injected.
+const CLOUD_ENABLED = CLOUD_WORKER_URL.length > 0 && !CLOUD_WORKER_URL.startsWith('__');
 // ──────────────────────────────────────────────────────────────────────────────
 
 const MAX_HISTORY = 120;
@@ -510,10 +520,24 @@ function ensureCard(sensorId, metric) {
 }
 
 function requestSingleWindowHydration(sensorId, w) {
-  if (!client || !client.connected) return;
   const windowMs = {'1h':3_600_000,'6h':21_600_000,'24h':86_400_000,'7d':604_800_000}[w];
   if (!windowMs) return;
   const sinceTs = Date.now() - windowMs;
+
+  if (CLOUD_ENABLED) {
+    const url = new URL(CLOUD_WORKER_URL + '/history');
+    url.searchParams.set('sensor_id', sensorId);
+    url.searchParams.set('since_ts', String(sinceTs));
+    url.searchParams.set('limit', '500');
+    fetch(url.toString())
+      .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(data => { if (Array.isArray(data.points)) applyWindowHydration(sensorId, data.points); })
+      .catch(err => console.warn('[CloudStorage] history fetch failed:', err));
+    return;
+  }
+
+  // Fallback: MQTT history-on-demand (RPi must be online).
+  if (!client || !client.connected) return;
   const reqId = (crypto.randomUUID && crypto.randomUUID())
     || (Date.now().toString(36) + Math.random().toString(36).slice(2));
   pendingWindowHydrations[reqId] = sensorId;
@@ -771,10 +795,40 @@ document.getElementById('clear-btn').addEventListener('click', () => {
 
 // ── Time-window buttons (event delegation) ─────────────────────────────────────
 document.getElementById('time-bar').addEventListener('click', e => {
-  const btn = e.target.closest('.time-btn');
+  const btn = e.target.closest('.time-btn[data-w]');
   if (!btn) return;
   setWindow(btn.dataset.w);
 });
+
+// ── Custom time range (only shown when CLOUD_ENABLED) ─────────────────────────
+if (CLOUD_ENABLED) {
+  document.getElementById('custom-range-wrap').style.display = 'flex';
+
+  document.getElementById('custom-apply-btn').addEventListener('click', () => {
+    const fromVal = document.getElementById('custom-from').value;
+    const toVal   = document.getElementById('custom-to').value;
+    if (!fromVal || !toVal) return;
+    const fromMs = new Date(fromVal).getTime();
+    const toMs   = new Date(toVal).getTime();
+    if (isNaN(fromMs) || isNaN(toMs) || fromMs >= toMs) return;
+
+    // Deactivate fixed-window buttons for visual clarity.
+    document.querySelectorAll('.time-btn[data-w]').forEach(b => b.classList.remove('active'));
+    document.getElementById('custom-apply-btn').classList.add('active');
+
+    for (const sensorId of Object.keys(charts)) {
+      const url = new URL(CLOUD_WORKER_URL + '/history');
+      url.searchParams.set('sensor_id', sensorId);
+      url.searchParams.set('since_ts',  String(fromMs));
+      url.searchParams.set('until_ts',  String(toMs));
+      url.searchParams.set('limit',     '2000');
+      fetch(url.toString())
+        .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+        .then(data => { if (Array.isArray(data.points)) applyWindowHydration(sensorId, data.points); })
+        .catch(err => console.warn('[CloudStorage] custom range fetch failed:', err));
+    }
+  });
+}
 
 // ── Theme toggle ───────────────────────────────────────────────────────────────
 function applyTheme(t) {
@@ -1014,20 +1068,8 @@ function setWindow(w) {
     return;
   }
 
-  if (!client || !client.connected) return;
-  const windowMs = {'1h':3_600_000,'6h':21_600_000,'24h':86_400_000,'7d':604_800_000}[w];
-  const sinceTs  = Date.now() - windowMs;
-
   for (const sensorId of Object.keys(charts)) {
-    const reqId = (crypto.randomUUID && crypto.randomUUID())
-      || (Date.now().toString(36) + Math.random().toString(36).slice(2));
-    pendingWindowHydrations[reqId] = sensorId;
-    client.publish(
-      `${TOPIC_PREFIX}/history/req`,
-      JSON.stringify({ request_id: reqId, sensor_id: sensorId, limit: 500, since_ts: sinceTs }),
-      { qos: 1, retain: false }
-    );
-    setTimeout(() => { delete pendingWindowHydrations[reqId]; }, 10_000);
+    requestSingleWindowHydration(sensorId, w);
   }
 }
 
