@@ -177,7 +177,7 @@ and restart the process.
 
 ## 8. Reading lifecycle (with persistence)
 
-A single periodic poll cycle now fans out to four handlers:
+A single periodic poll cycle fans out to all registered handlers:
 
 ```
 ThresholdMonitor::run()
@@ -185,14 +185,19 @@ ThresholdMonitor::run()
    ▼
 EventBus::dispatch(SensorEvent::Reading)
    │
-   ├─► LogAlert              (stdout, optional)
-   ├─► SqliteHistoryHandler   → HistoryStore::insert()  (SQLite WAL, durable)
-   ├─► MqttPublisher          → rpi/{sensor}/reading    (QoS=1, retain=true)
-   └─► GpioAlert              → /sys/class/gpio/gpio{N}/value  (if gpio_alert.enabled)
+   ├─► LogAlert               (stdout, always)
+   ├─► SqliteHistoryHandler    → HistoryStore::insert()       (SQLite WAL, local)
+   ├─► MqttPublisher           → rpi/{sensor}/reading         (QoS=1, retain=true)
+   ├─► GpioAlert               → /sys/class/gpio/gpio{N}/value (if gpio_alert.enabled)
+   └─► CloudStorageHandler     → enqueue → POST /ingest       (Cloudflare D1, async)
 ```
 
-The cloud dashboard hydrates via the MQTT history-on-demand protocol on page load —
-see [persistence.md](persistence.md).
+`CloudStorageHandler.on_event()` is non-blocking: it enqueues the record and returns immediately.
+A background `std::jthread` drains the queue in batches of up to 50 items and POSTs via libcurl.
+
+The cloud dashboard uses two history sources:
+- **MQTT history-on-demand** (short-term, requires RPi online) — see [persistence.md](persistence.md)
+- **Cloudflare Worker GET /history** (long-term, RPi-independent) — see [cloudflare-setup.md](cloudflare-setup.md)
 
 ---
 
@@ -205,4 +210,4 @@ see [persistence.md](persistence.md).
 | N consecutive errors → alert | Counter in `ThresholdMonitor::run()`, new enum in `SensorEvent::Type` |
 | Dynamic config reload (no restart) | `SIGUSR1` handler calling `MonitoringHub::reload(Config)` with stop/restart of affected monitors |
 | Rate-of-change alert | New monitor type implementing `ISensorReader` + derivative logic |
-| Cross-device shared history | A small cloud worker subscribing to MQTT and exposing REST (instead of the current Pi-local SQLite) |
+| Cross-device shared history | Implemented via `CloudStorageHandler` + Cloudflare Worker + D1 — see [cloudflare-setup.md](cloudflare-setup.md) |

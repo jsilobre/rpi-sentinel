@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**rpi-sentinel** is a C++23 real-time environmental sensor monitoring daemon for Raspberry Pi. It polls hardware sensors (DS18B20 temperature, DHT11 temperature/humidity) or simulated sensors in parallel threads, evaluates thresholds with hysteresis, and dispatches events to a handler chain that logs, stores to SQLite, and publishes via MQTT to a cloud dashboard (GitHub Pages + HiveMQ).
+**rpi-sentinel** is a C++23 real-time environmental sensor monitoring daemon for Raspberry Pi. It polls hardware sensors (DS18B20 temperature, DHT11 temperature/humidity) or simulated sensors in parallel threads, evaluates thresholds with hysteresis, and dispatches events to a handler chain that logs, stores to SQLite, publishes via MQTT to a cloud dashboard (GitHub Pages + HiveMQ), and persists readings to Cloudflare D1 via HTTP POST for long-term cloud storage.
 
 ## Documentation
 
@@ -16,14 +16,15 @@ Detailed technical references live in `docs/`:
 | `docs/workflow.md` | Per-cycle polling loop, threading model, hysteresis numerical example, sensor factory |
 | `docs/build-guide.md` | CMake dependency graph, cross-compilation, RPi hardware setup, adding a test |
 | `docs/persistence.md` | SQLite schema & PRAGMAs, rotation policy, MQTT history-on-demand protocol, failure modes |
+| `docs/cloudflare-setup.md` | Cloudflare Worker + D1 setup, deployment, RPi daemon configuration, end-to-end test |
 
 ## Build Commands
 
-Requires GCC 14+, CMake 3.28+, `libsqlite3-dev`. MQTT support is auto-detected if `libmosquitto-dev` is installed.
+Requires GCC 14+, CMake 3.28+, `libsqlite3-dev`. MQTT support is auto-detected if `libmosquitto-dev` is installed. Cloud storage is auto-detected if `libcurl4-openssl-dev` is installed.
 
 ```bash
 # Install prerequisites (Ubuntu 24.04)
-sudo apt-get install -y g++-14 cmake ninja-build libsqlite3-dev libmosquitto-dev
+sudo apt-get install -y g++-14 cmake ninja-build libsqlite3-dev libmosquitto-dev libcurl4-openssl-dev
 
 # Configure (with tests)
 cmake -B build -DCMAKE_CXX_COMPILER=g++-14 -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
@@ -90,15 +91,21 @@ Each `ThresholdMonitor` runs in its own `std::jthread`:
 5. `hub.start()` → spawns jthreads
 6. Block on SIGINT/SIGTERM, then `hub.stop()` + cleanup
 
-### MQTT History-on-Demand Protocol
+### History — Two Complementary Paths
 
-The cloud `dashboard/index.html` (hosted on GitHub Pages) requests history per sensor over MQTT on page load — no separate backend needed.
+The dashboard supports two history sources that work simultaneously:
 
+**MQTT history-on-demand** (short-term, RPi must be online):
 - Dashboard publishes to `rpi/history/req`: `{"request_id": "<uuid>", "sensor_id": "<id>", "limit": 120}`
-- `MqttPublisher` queries `HistoryStore` and responds on `rpi/history/resp/{request_id}`
+- `MqttPublisher` queries `HistoryStore` (local SQLite) and responds on `rpi/history/resp/{request_id}`
 - Points are returned in ascending chronological order; `truncated: true` signals the 500-point server-side cap was hit
 
-See `docs/persistence.md` for the full payload schema, hydration sequence, and HiveMQ ACL requirements.
+**Cloudflare Worker + D1** (long-term, RPi offline-capable):
+- `CloudStorageHandler` POSTs every `Reading` event to `POST /ingest` on the Worker (libcurl, background thread)
+- Dashboard fetches historical windows via `GET /history?sensor_id=...&since_ts=...` — no MQTT required
+- Retention is unlimited; custom time ranges (datetime-local picker) available in the dashboard
+
+See `docs/persistence.md` for the SQLite/MQTT details and `docs/cloudflare-setup.md` for the cloud setup.
 
 ## Key Conventions
 
@@ -138,16 +145,19 @@ Copy `config.example.json` to `config.json`. Key fields:
   "poll_interval_ms": 5000,
   "mqtt": { "enabled": false, "broker_url": "", "username": "", "password": "", "topic_prefix": "rpi" },
   "history": { "enabled": true, "db_path": "data/history.db", "retention_days": 7, "max_points_per_sensor": 50000 },
+  "cloud_storage": { "enabled": false, "endpoint": "https://<worker>.workers.dev", "api_key_env": "CLOUD_API_KEY" },
   "sensors": [
     { "id": "temp1", "type": "simulated", "metric": "temperature", "threshold_warn": 30.0, "threshold_crit": 40.0 }
   ]
 }
 ```
 
-Sensor `type` values: `simulated`, `ds18b20`, `dht11`. DS18B20 requires `device_path` pointing to `/sys/bus/w1/devices/<id>/temperature`. The `data/` directory is created automatically at runtime.
+Sensor `type` values: `simulated`, `ds18b20`, `dht11`, `cpu_temp`, `sgp30`. DS18B20 requires `device_path` pointing to `/sys/bus/w1/devices/<id>/temperature`. The `data/` directory is created automatically at runtime.
+
+`cloud_storage.api_key_env` names an environment variable holding the Bearer token that authenticates POST requests to the Worker. Never put the key literal in `config.json` — use the env var. See `docs/cloudflare-setup.md`.
 
 ## CI
 
 GitHub Actions (`.github/workflows/ci.yml`) runs on every push and PR: installs GCC 14 + Ninja, configures with `BUILD_TESTING=ON`, builds, then runs `ctest --output-on-failure --parallel 4`.
 
-`deploy-dashboard.yml` deploys `dashboard/` to GitHub Pages on pushes to `main` that touch `dashboard/**`, injecting MQTT credentials from GitHub Secrets by replacing `__MQTT_BROKER_WSS__`, `__MQTT_USER__`, `__MQTT_PASS__` placeholders in `dashboard/index.html`.
+`deploy-dashboard.yml` deploys `dashboard/` to GitHub Pages on pushes to `main` that touch `dashboard/**`, injecting credentials from GitHub Secrets by replacing `__MQTT_BROKER_WSS__`, `__MQTT_USER__`, `__MQTT_PASS__`, and `__CLOUD_WORKER_URL__` placeholders in `dashboard/index.html`.
