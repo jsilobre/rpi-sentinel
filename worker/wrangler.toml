@@ -6,4 +6,4 @@ compatibility_date = "2025-01-01"
 binding       = "DB"
 database_name = "rpi-sentinel-db"
 # Replace with the ID returned by: wrangler d1 create rpi-sentinel-db
-database_id   = "REPLACE_AFTER_wrangler_d1_create"
+database_id   = "2c0a43bb-a601-466a-b738-4ec30cecb096"
