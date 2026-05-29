@@ -31,14 +31,16 @@ jobs:
 
       - name: Inject MQTT credentials
         env:
-          MQTT_BROKER_WSS: ${{ secrets.MQTT_BROKER_WSS }}
-          MQTT_USER: ${{ secrets.MQTT_USER }}
-          MQTT_PASS: ${{ secrets.MQTT_PASS }}
+          MQTT_BROKER_WSS:  ${{ secrets.MQTT_BROKER_WSS }}
+          MQTT_USER:        ${{ secrets.MQTT_USER }}
+          MQTT_PASS:        ${{ secrets.MQTT_PASS }}
+          CLOUD_WORKER_URL: ${{ secrets.CLOUD_WORKER_URL }}
         run: |
           sed -i \
             -e "s|__MQTT_BROKER_WSS__|${MQTT_BROKER_WSS}|g" \
             -e "s|__MQTT_USER__|${MQTT_USER}|g" \
             -e "s|__MQTT_PASS__|${MQTT_PASS}|g" \
+            -e "s|__CLOUD_WORKER_URL__|${CLOUD_WORKER_URL}|g" \
             dashboard/index.html
 
       - name: Upload artifact

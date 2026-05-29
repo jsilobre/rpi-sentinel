@@ -14,6 +14,11 @@
 #include "otel/OtlpExporter.hpp"
 #endif
 
+#ifdef ENABLE_CLOUD_STORAGE
+#include "alerts/CloudStorageHandler.hpp"
+#include <curl/curl.h>
+#endif
+
 #include <csignal>
 #include <chrono>
 #include <filesystem>
@@ -31,6 +36,10 @@ int main(int argc, char* argv[])
 {
     std::signal(SIGINT,  signal_handler);
     std::signal(SIGTERM, signal_handler);
+
+#ifdef ENABLE_CLOUD_STORAGE
+    curl_global_init(CURL_GLOBAL_DEFAULT);
+#endif
 
     const std::filesystem::path config_path = (argc > 1) ? argv[1] : "config.json";
 
@@ -96,6 +105,22 @@ int main(int argc, char* argv[])
     }
 #endif
 
+#ifdef ENABLE_CLOUD_STORAGE
+    std::shared_ptr<rpi::CloudStorageHandler> cloud_handler;
+    if (result->cloud_storage.enabled) {
+        try {
+            cloud_handler = std::make_shared<rpi::CloudStorageHandler>(result->cloud_storage);
+            bus.register_handler(cloud_handler);
+        } catch (const std::exception& e) {
+            std::println(stderr, "[main] Cloud storage error: {}", e.what());
+        }
+    }
+#else
+    if (result->cloud_storage.enabled) {
+        std::println(stderr, "[main] cloud_storage.enabled=true but binary built without ENABLE_CLOUD_STORAGE — ignored");
+    }
+#endif
+
     rpi::MonitoringHub hub(bus, std::move(*result));
 
     auto on_config_change = [&hub, &config_path
@@ -145,6 +170,11 @@ int main(int argc, char* argv[])
     // Reset after monitors have stopped so any final dispatches are
     // queued, then destruction flushes the SDK providers.
     otlp_exporter.reset();
+#endif
+#ifdef ENABLE_CLOUD_STORAGE
+    // Destroy handler (joins sender thread + flushes) before curl cleanup.
+    cloud_handler.reset();
+    curl_global_cleanup();
 #endif
     return 0;
 }

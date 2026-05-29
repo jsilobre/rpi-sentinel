@@ -3,17 +3,17 @@
 ## 1. Why
 
 The cloud dashboard (`dashboard/index.html`, hosted on GitHub Pages) is a pure
-browser-side MQTT subscriber. Without persistence, refreshing the page wipes
+browser-side application. Without persistence, refreshing the page wipes
 the history and the user has to wait for new readings to redraw the charts.
 
-The persistence layer addresses this:
+rpi-sentinel provides two complementary persistence mechanisms:
 
-- writes every `Reading` event to a local SQLite database;
-- exposes a request/response protocol over MQTT so the cloud dashboard can
-  hydrate its charts on page load without needing a separate backend.
+| Layer | Storage | Retention | Dashboard path |
+|---|---|---|---|
+| Local SQLite (`HistoryStore`) | `data/history.db` on the Pi | 7 days (configurable) | MQTT history-on-demand (Pi must be online) |
+| Cloud D1 (`CloudStorageHandler`) | Cloudflare D1 (edge SQLite) | Unlimited | HTTP GET /history (Pi-independent) |
 
-There is intentionally **no cloud-side database** — the Pi is the source of
-truth, MQTT is just the transport.
+Both run simultaneously. The dashboard uses MQTT for live data and for short-term history when the Pi is online, and falls back to (or prefers) the Cloudflare Worker for longer historical windows.
 
 ---
 
@@ -175,6 +175,49 @@ rules in addition to its existing read access:
 | `rpi/history/resp/+` | subscribe |
 
 Without these, hydration requests will be silently dropped by the broker.
+
+---
+
+## 4. Cloud storage — Cloudflare Worker + D1
+
+`CloudStorageHandler` ships every `Reading` event to a Cloudflare Worker via HTTP POST. The schema mirrors the local SQLite table exactly.
+
+### POST /ingest
+
+```
+Authorization: Bearer <API_KEY>
+Content-Type: application/json
+
+[{"sensor_id":"cpu-temp","metric":"temperature","value":55.1,"ts":1716825600000}]
+```
+
+The daemon batches up to 50 items per request, drained every 2 s from an in-memory queue. If the queue exceeds 1 000 items (network outage), the oldest items are dropped — recent data is preserved.
+
+### GET /history (dashboard → Worker)
+
+```
+GET /history?sensor_id=cpu-temp&since_ts=1716739200000&limit=500
+```
+
+Response matches the MQTT history-on-demand shape so `applyWindowHydration()` in the dashboard is shared:
+
+```json
+{"sensor_id":"cpu-temp","points":[{"ts":1716825600000,"value":55.1}],"truncated":false}
+```
+
+The optional `until_ts` parameter supports the custom time range picker in the dashboard.
+
+### Failure modes (cloud)
+
+| Scenario | Behaviour |
+|---|---|
+| `cloud_storage.enabled = false` | Handler not instantiated; no HTTP traffic. |
+| `CLOUD_API_KEY` unset | Construction throws; daemon logs error and continues without cloud storage. |
+| Network outage | POST fails silently; items are dropped after queue cap. Live MQTT still works. |
+| Worker returns non-200 | Logged and dropped; no retry to avoid unbounded backlog. |
+| Dashboard with no `CLOUD_WORKER_URL` secret | `CLOUD_ENABLED = false`; dashboard falls back to MQTT for all history windows. |
+
+See [cloudflare-setup.md](cloudflare-setup.md) for full deployment instructions.
 
 ---
 

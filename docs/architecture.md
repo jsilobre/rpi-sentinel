@@ -27,6 +27,7 @@
 │  Config / MonitorConfig│  bus  │  MqttPublisher           │
 └────────┬───────────────┘       │  GpioAlert               │
          │                       │  SqliteHistoryHandler    │
+         │                       │  CloudStorageHandler     │
          │                       └──────────┬───────────────┘
          │ read()                           │
          ▼                                 ▼
@@ -195,6 +196,7 @@ The `warn_active_` / `crit_active_` state is maintained across polling cycles wi
 | `LogAlert.hpp/cpp` | Prints to stdout using `std::println` and `std::format`. |
 | `GpioAlert.hpp/cpp` | Drives a BCM GPIO pin HIGH on `ThresholdExceeded`, LOW on `ThresholdRecovered`. Uses the Linux sysfs interface (`/sys/class/gpio/`); no external library. Gracefully degrades when the pin is unavailable (e.g. in CI). Enabled via `gpio_alert` in `config.json`. |
 | `MqttPublisher.hpp/cpp` | Publishes events to an MQTT broker (HiveMQ Cloud or any broker). Enabled via `config.json`. Also subscribes to `rpi/history/req` and serves history-on-demand by querying `HistoryStore` (see [persistence.md](persistence.md)). |
+| `CloudStorageHandler.hpp/cpp` | POSTs every `Reading` event as a JSON batch to a Cloudflare Worker (`POST /ingest`) via libcurl. `on_event()` is non-blocking: it enqueues records into a bounded `std::queue` (max 1 000); a dedicated `std::jthread` drains and sends batches of up to 50. Enabled via `cloud_storage` in `config.json`; requires `ENABLE_CLOUD_STORAGE=ON` at build time (auto-detected if libcurl is present). See [cloudflare-setup.md](cloudflare-setup.md). |
 
 **Adding a new handler:**
 1. Create a class that inherits from `IAlertHandler`.
@@ -209,7 +211,9 @@ The `warn_active_` / `crit_active_` state is maintained across polling cycles wi
 | `HistoryStore.hpp/cpp` | SQLite-backed persistent ring buffer of sensor readings. Single table `readings(sensor_id, ts, value, metric)` with WAL journal. Provides `insert`, `recent(limit)`, `since(ts, limit)`, `metric_for`, and `rotate()` (time- and count-based). |
 | `SqliteHistoryHandler.hpp/cpp` | `IAlertHandler` that writes every `Reading` event to `HistoryStore`. Threshold events are ignored. |
 
-The DB lives at `data/history.db` by default (configurable). Retention and per-sensor row caps come from the `history` block in `config.json`. See [persistence.md](persistence.md) for the schema, rotation policy, and the MQTT history-on-demand protocol used by the cloud dashboard.
+The DB lives at `data/history.db` by default (configurable). Retention and per-sensor row caps come from the `history` block in `config.json`. See [persistence.md](persistence.md) for the schema, rotation policy, and the MQTT history-on-demand protocol.
+
+**Cloud persistence** (`CloudStorageHandler`, in the `alerts` layer) complements local SQLite: it ships readings to a Cloudflare D1 database (edge SQLite) via HTTP, providing unlimited retention and dashboard access independent of RPi connectivity. See [cloudflare-setup.md](cloudflare-setup.md).
 
 ---
 
