@@ -52,6 +52,13 @@ struct GpioConfig {
     int  pin     = 17;   // BCM pin number
 };
 
+struct CloudStorageConfig {
+    bool        enabled     = false;
+    std::string endpoint;              // https://<worker>.workers.dev
+    std::string api_key_env = "CLOUD_API_KEY";
+    std::string api_key;               // dev-only fallback; never commit
+};
+
 struct Config {
     std::vector<SensorConfig> sensors;
     float                     hysteresis    = 2.0f;
@@ -60,6 +67,7 @@ struct Config {
     HistoryConfig             history;
     OtlpConfig                otlp;
     GpioConfig                gpio_alert;
+    CloudStorageConfig        cloud_storage;
 };
 
 } // namespace rpi

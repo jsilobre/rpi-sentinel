@@ -34,6 +34,10 @@ if(ENABLE_OTLP)
     target_link_libraries(rpi_tests PRIVATE otel)
 endif()
 
+if(ENABLE_CLOUD_STORAGE)
+    target_sources(rpi_tests PRIVATE test_cloud_storage_handler.cpp)
+endif()
+
 apply_compiler_options(rpi_tests)
 
 include(GoogleTest)
