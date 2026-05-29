@@ -11,11 +11,12 @@
 
 **Ubuntu 24.04:**
 ```bash
-sudo apt-get install -y g++-14 cmake ninja-build libsqlite3-dev libmosquitto-dev
+sudo apt-get install -y g++-14 cmake ninja-build libsqlite3-dev libmosquitto-dev libcurl4-openssl-dev
 ```
 
 `libsqlite3-dev` is required for the persistence layer (`HistoryStore`).
 `libmosquitto-dev` is optional — it auto-enables the MQTT integration.
+`libcurl4-openssl-dev` is optional — it auto-enables cloud storage via `CloudStorageHandler`.
 
 The daemon creates `data/` automatically next to the working directory (default
 DB path `data/history.db`), so make sure the working directory is writable.
@@ -109,6 +110,9 @@ Expected output (simulated sensors — BME280, DHT11, HC-SR501):
 | `BUILD_TESTING` | `ON` | Enables building and registering Google Test unit tests |
 | `CMAKE_BUILD_TYPE` | — | `Release` / `Debug` / `RelWithDebInfo` |
 | `CMAKE_EXPORT_COMPILE_COMMANDS` | `ON` | Generates `build/compile_commands.json` for clangd / VSCode |
+| `ENABLE_MQTT` | auto | Enabled if `libmosquitto` is found; override with `-DENABLE_MQTT=ON/OFF` |
+| `ENABLE_CLOUD_STORAGE` | auto | Enabled if `libcurl` is found; override with `-DENABLE_CLOUD_STORAGE=ON/OFF` |
+| `ENABLE_OTLP` | `OFF` | Opt-in OTLP/Grafana export (heavy build, requires Protobuf + CURL) |
 
 ---
 
