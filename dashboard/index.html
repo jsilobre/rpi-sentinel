@@ -169,6 +169,9 @@
     <button class="time-btn" data-w="6h"   type="button">6h</button>
     <button class="time-btn" data-w="24h"  type="button">24h</button>
     <button class="time-btn" data-w="7d"   type="button">7d</button>
+    <button class="time-btn" data-w="30d"  data-cloud="1" type="button" style="display:none">1mo</button>
+    <button class="time-btn" data-w="180d" data-cloud="1" type="button" style="display:none">6mo</button>
+    <button class="time-btn" data-w="365d" data-cloud="1" type="button" style="display:none">1y</button>
     <span id="custom-range-wrap" style="display:none;align-items:center;gap:6px;margin-left:8px">
       <span style="font-size:11px;color:var(--muted)">From</span>
       <input type="datetime-local" id="custom-from" class="config-input" style="padding:2px 6px;font-size:11px;width:155px">
@@ -226,6 +229,19 @@ const CLOUD_ENABLED = CLOUD_WORKER_URL.length > 0 && !CLOUD_WORKER_URL.startsWit
 const MAX_HISTORY = 120;
 const MAX_EVENTS  = 50;
 
+// Time-window definitions. A window with `bucketMs` is served as a server-side
+// down-sampled, min/max-banded view from Cloudflare only — used for the long
+// windows where raw points would be far too many for MQTT and the browser.
+const WINDOWS = {
+  '1h':   { ms: 3_600_000 },
+  '6h':   { ms: 21_600_000 },
+  '24h':  { ms: 86_400_000 },
+  '7d':   { ms: 604_800_000 },
+  '30d':  { ms: 2_592_000_000,  bucketMs: 3_600_000 },   // 1h buckets → ~720 pts
+  '180d': { ms: 15_552_000_000, bucketMs: 21_600_000 },  // 6h buckets → ~720 pts
+  '365d': { ms: 31_536_000_000, bucketMs: 86_400_000 },  // 1d buckets → ~365 pts
+};
+
 const charts               = {};
 const history              = {};
 const events               = [];
@@ -242,6 +258,9 @@ const pendingSaves         = {};  // sensorId → { warn, crit, fb, sid, timer }
 const chartTimestamps      = {};  // sensorId → array of epoch-ms mirroring chart data (historical modes)
 const WINDOW_KEY           = 'rpi-sentinel-window';
 let   currentWindow        = localStorage.getItem(WINDOW_KEY) || 'live';
+// A persisted long (Cloudflare-only) window is meaningless without the Worker.
+if (!CLOUD_ENABLED && WINDOWS[currentWindow] && WINDOWS[currentWindow].bucketMs)
+  currentWindow = 'live';
 
 const palette = [
   { border: '#0ea5e9', bg: 'rgba(14,165,233,0.10)' },
@@ -260,6 +279,11 @@ function escapeHtml(s) {
 
 function fmt(isoOrMs) {
   const d = new Date(isoOrMs);
+  const w = WINDOWS[currentWindow];
+  if (w && w.bucketMs)  // long windows: date only (with year for 1y)
+    return d.toLocaleDateString('en', currentWindow === '365d'
+      ? {year:'numeric', month:'short', day:'numeric'}
+      : {month:'short', day:'numeric'});
   if (currentWindow === '24h' || currentWindow === '7d')
     return d.toLocaleDateString('en', {month:'short', day:'numeric'}) + ' ' +
            d.toLocaleTimeString('en', {hour:'2-digit', minute:'2-digit'});
@@ -484,6 +508,27 @@ function ensureCard(sensorId, metric) {
         tension: 0.3,
         fill: true,
         pointRadius: 0,
+      }, {
+        // Band upper (max) — fills down to the lower (min) dataset. Empty
+        // unless an aggregated long-window/banded view is active.
+        data: [],
+        borderColor: 'transparent',
+        backgroundColor: col.bg,
+        borderWidth: 0,
+        pointRadius: 0,
+        tension: 0.3,
+        fill: '+1',
+        order: 1,
+      }, {
+        // Band lower (min).
+        data: [],
+        borderColor: 'transparent',
+        backgroundColor: 'transparent',
+        borderWidth: 0,
+        pointRadius: 0,
+        tension: 0.3,
+        fill: false,
+        order: 1,
       }]
     },
     options: {
@@ -493,7 +538,20 @@ function ensureCard(sensorId, metric) {
       interaction: { intersect: false, mode: 'index' },
       plugins: {
         legend: { display: false },
-        tooltip: { callbacks: { label: ctx => ctx.parsed.y.toFixed(2) } },
+        tooltip: {
+          filter: item => item.datasetIndex === 0,  // hide band datasets
+          callbacks: {
+            label: ctx => {
+              const v    = ctx.parsed.y;
+              const ds   = ctx.chart.data.datasets;
+              const bMax = ds[1] && ds[1].data[ctx.dataIndex];
+              const bMin = ds[2] && ds[2].data[ctx.dataIndex];
+              if (typeof bMin === 'number' && typeof bMax === 'number')
+                return `avg ${v.toFixed(2)} (min ${bMin.toFixed(2)} / max ${bMax.toFixed(2)})`;
+              return v.toFixed(2);
+            }
+          }
+        },
         zoom: {
           zoom: {
             wheel: { enabled: true }, pinch: { enabled: true }, mode: 'x',
@@ -520,21 +578,25 @@ function ensureCard(sensorId, metric) {
 }
 
 function requestSingleWindowHydration(sensorId, w) {
-  const windowMs = {'1h':3_600_000,'6h':21_600_000,'24h':86_400_000,'7d':604_800_000}[w];
-  if (!windowMs) return;
-  const sinceTs = Date.now() - windowMs;
+  const cfg = WINDOWS[w];
+  if (!cfg) return;
+  const sinceTs = Date.now() - cfg.ms;
 
   if (CLOUD_ENABLED) {
     const url = new URL(CLOUD_WORKER_URL + '/history');
     url.searchParams.set('sensor_id', sensorId);
     url.searchParams.set('since_ts', String(sinceTs));
-    url.searchParams.set('limit', '500');
+    if (cfg.bucketMs) url.searchParams.set('bucket_ms', String(cfg.bucketMs));
+    else              url.searchParams.set('limit', '500');
     fetch(url.toString())
       .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
       .then(data => { if (Array.isArray(data.points)) applyWindowHydration(sensorId, data.points); })
       .catch(err => console.warn('[CloudStorage] history fetch failed:', err));
     return;
   }
+
+  // Long (aggregated) windows have no MQTT equivalent — Cloudflare only.
+  if (cfg.bucketMs) return;
 
   // Fallback: MQTT history-on-demand (RPi must be online).
   if (!client || !client.connected) return;
@@ -649,6 +711,9 @@ function handleReading(sensorId, data) {
     chart.data.labels           = history[sensorId].map(h => fmt(h.timestamp));
     chart.data.datasets[0].data = history[sensorId].map(h => h.value);
     chart.update('none');
+  } else if (WINDOWS[currentWindow] && WINDOWS[currentWindow].bucketMs) {
+    // Aggregated long window — the chart is a server-rendered band; a single
+    // raw live point doesn't match the bucket granularity, so don't append it.
   } else {
     // In a historical window, append the live point so the chart keeps progressing.
     const ts = new Date(data.timestamp).getTime();
@@ -658,7 +723,7 @@ function handleReading(sensorId, data) {
     chart.data.datasets[0].data.push(data.value);
 
     // Prune points that have slid outside the selected time window.
-    const windowMs = {'1h':3_600_000,'6h':21_600_000,'24h':86_400_000,'7d':604_800_000}[currentWindow];
+    const windowMs = (WINDOWS[currentWindow] || {}).ms;
     if (windowMs) {
       const cutoff = Date.now() - windowMs;
       while (chartTimestamps[sensorId].length && chartTimestamps[sensorId][0] < cutoff) {
@@ -803,6 +868,8 @@ document.getElementById('time-bar').addEventListener('click', e => {
 // ── Custom time range (only shown when CLOUD_ENABLED) ─────────────────────────
 if (CLOUD_ENABLED) {
   document.getElementById('custom-range-wrap').style.display = 'flex';
+  // The 1mo / 6mo / 1y windows are Cloudflare-only (no MQTT equivalent).
+  document.querySelectorAll('.time-btn[data-cloud]').forEach(b => { b.style.display = ''; });
 
   document.getElementById('custom-apply-btn').addEventListener('click', () => {
     const fromVal = document.getElementById('custom-from').value;
@@ -816,12 +883,20 @@ if (CLOUD_ENABLED) {
     document.querySelectorAll('.time-btn[data-w]').forEach(b => b.classList.remove('active'));
     document.getElementById('custom-apply-btn').classList.add('active');
 
+    // Ranges wider than 7d are down-sampled (banded) so the response stays
+    // small; pick a bucket (>= 1h) that keeps it to roughly 1000 points.
+    const spanMs   = toMs - fromMs;
+    const bucketMs = spanMs > WINDOWS['7d'].ms
+      ? Math.max(3_600_000, Math.ceil(spanMs / 1000 / 3_600_000) * 3_600_000)
+      : 0;
+
     for (const sensorId of Object.keys(charts)) {
       const url = new URL(CLOUD_WORKER_URL + '/history');
       url.searchParams.set('sensor_id', sensorId);
       url.searchParams.set('since_ts',  String(fromMs));
       url.searchParams.set('until_ts',  String(toMs));
-      url.searchParams.set('limit',     '2000');
+      if (bucketMs) url.searchParams.set('bucket_ms', String(bucketMs));
+      else          url.searchParams.set('limit',     '2000');
       fetch(url.toString())
         .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
         .then(data => { if (Array.isArray(data.points)) applyWindowHydration(sensorId, data.points); })
@@ -1035,9 +1110,21 @@ function applyWindowHydration(sensorId, points) {
   if (!charts[sensorId]) return;
   const fresh = clearedAt ? points.filter(p => p.ts >= clearedAt) : points;
   const chart = charts[sensorId];
+  const aggregated = fresh.length > 0 && typeof fresh[0].avg === 'number';
   chartTimestamps[sensorId]   = fresh.map(p => p.ts);
   chart.data.labels           = fresh.map(p => fmt(p.ts));
-  chart.data.datasets[0].data = fresh.map(p => p.value);
+  if (aggregated) {
+    // Down-sampled view: avg line + min/max band.
+    chart.data.datasets[0].fill = false;
+    chart.data.datasets[0].data = fresh.map(p => p.avg);
+    chart.data.datasets[1].data = fresh.map(p => p.max);
+    chart.data.datasets[2].data = fresh.map(p => p.min);
+  } else {
+    chart.data.datasets[0].fill = true;
+    chart.data.datasets[0].data = fresh.map(p => p.value);
+    chart.data.datasets[1].data = [];
+    chart.data.datasets[2].data = [];
+  }
   chart.resetZoom();
   chart.update('none');
   const btn = document.getElementById('reset-zoom-' + domId(sensorId));
@@ -1061,6 +1148,9 @@ function setWindow(w) {
     for (const sensorId of Object.keys(charts)) {
       const h     = history[sensorId] || [];
       const chart = charts[sensorId];
+      chart.data.datasets[0].fill = true;
+      chart.data.datasets[1].data = [];
+      chart.data.datasets[2].data = [];
       chart.data.labels           = h.map(p => fmt(p.timestamp));
       chart.data.datasets[0].data = h.map(p => p.value);
       chart.update('none');
