@@ -104,6 +104,7 @@ The dashboard supports two history sources that work simultaneously:
 - `CloudStorageHandler` POSTs every `Reading` event to `POST /ingest` on the Worker (libcurl, background thread)
 - Dashboard fetches historical windows via `GET /history?sensor_id=...&since_ts=...` — no MQTT required
 - Retention is unlimited; custom time ranges (datetime-local picker) available in the dashboard
+- Long windows (`1mo`/`6mo`/`1y`, and custom ranges > 7d) are **down-sampled**: `GET /history` with `bucket_ms` returns avg + min/max band points from the `readings_hourly` rollup table, which a scheduled (cron) Worker handler populates hourly. These windows are Cloudflare-only (no MQTT path).
 
 See `docs/persistence.md` for the SQLite/MQTT details and `docs/cloudflare-setup.md` for the cloud setup.
 
