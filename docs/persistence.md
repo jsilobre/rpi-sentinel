@@ -205,6 +205,15 @@ Response matches the MQTT history-on-demand shape so `applyWindowHydration()` in
 {"sensor_id":"cpu-temp","points":[{"ts":1716825600000,"value":55.1}],"truncated":false}
 ```
 
+When the requested window holds more than `limit` rows (e.g. a 24h or 7d view
+at a 5 s poll interval contains tens of thousands of readings), the Worker
+**downsamples uniformly across the whole window** rather than returning only the
+most recent `limit` points. It does this with `NTILE(limit)` — splitting the
+windowed rows into `limit` even buckets and emitting the first row of each — so
+the returned curve spans the entire range. This mirrors `HistoryStore::since()`
+on the MQTT path; without it the 24h/7d filters would collapse to just the last
+few minutes of data. `truncated=true` signals the window was downsampled.
+
 The optional `until_ts` parameter supports the custom time range picker in the dashboard.
 
 ### Failure modes (cloud)
