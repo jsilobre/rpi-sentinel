@@ -6,17 +6,43 @@ This guide covers the one-time setup needed to deploy the rpi-sentinel Cloudflar
 
 ```
 RPi daemon (CloudStorageHandler)
-  └─ HTTP POST /ingest ──► Cloudflare Worker ──► D1 (SQLite at the edge)
+  └─ HTTP POST /ingest ──► Cloudflare Worker ──► D1: readings (raw)
+                                                  │         ▲
+                            cron (hourly) rollup ─┘         │
+                                  └────────► D1: readings_hourly (avg/min/max)
                                                         ▲
 Dashboard (GitHub Pages) ─── GET /history?... ──────────┘
 ```
 
-The Worker has two endpoints:
+The Worker has two HTTP endpoints plus a scheduled (cron) handler:
 
-| Endpoint | Caller | Auth |
+| Trigger | Caller | Auth |
 |---|---|---|
 | `POST /ingest` | RPi daemon | `Authorization: Bearer <API_KEY>` |
 | `GET /history` | Dashboard (browser) | None (CORS public) |
+| cron `0 * * * *` | Cloudflare scheduler | n/a |
+
+### Time windows & down-sampling
+
+Short windows (`1h`–`7d`) and the custom picker for spans ≤ 7 days return **raw**
+points from the `readings` table. The long windows — **1mo / 6mo / 1y** (and custom
+ranges wider than 7 days) — would be far too many raw points (a year at a 5 s poll
+is ~6.3 M rows per sensor), so they are served **down-sampled** from the
+`readings_hourly` rollup table:
+
+| Window | `bucket_ms` | Points | Source |
+|---|---|---|---|
+| 1mo | 1 h (3 600 000) | ~720 | `readings_hourly` |
+| 6mo | 6 h (21 600 000) | ~720 | `readings_hourly` (re-bucketed) |
+| 1y | 1 d (86 400 000) | ~365 | `readings_hourly` (re-bucketed) |
+
+Each down-sampled point carries an **average plus a min/max band** so short spikes
+(e.g. threshold breaches) are preserved rather than smoothed away. The hourly cron
+re-aggregates a trailing 6 h of raw readings on every run, so a missed tick or a
+late-arriving reading self-corrects (upsert keyed on `sensor_id, hour_ts`).
+
+These long windows are **Cloudflare-only** — there is no MQTT equivalent; the
+buttons stay hidden unless `CLOUD_WORKER_URL` is injected into the dashboard.
 
 ---
 
@@ -65,7 +91,11 @@ Commit and push to `main`. The Worker will redeploy automatically.
 
 ### Apply the schema
 
-In the Cloudflare dashboard → **D1** → **rpi-sentinel-db** → **Console**, run:
+In the Cloudflare dashboard → **D1** → **rpi-sentinel-db** → **Console**, paste the
+full contents of [`worker/schema.sql`](../worker/schema.sql) (or run
+`npx wrangler d1 execute rpi-sentinel-db --remote --file=worker/schema.sql`). It is
+idempotent (`CREATE TABLE IF NOT EXISTS`), so it is safe to re-run on an existing
+database to add the `readings_hourly` rollup table:
 
 ```sql
 CREATE TABLE IF NOT EXISTS readings (
@@ -75,7 +105,25 @@ CREATE TABLE IF NOT EXISTS readings (
   metric    TEXT    NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_readings ON readings (sensor_id, ts DESC);
+
+-- Hourly rollup powering the 1mo / 6mo / 1y windows.
+CREATE TABLE IF NOT EXISTS readings_hourly (
+  sensor_id TEXT    NOT NULL,
+  hour_ts   INTEGER NOT NULL,
+  metric    TEXT    NOT NULL,
+  avg_val   REAL    NOT NULL,
+  min_val   REAL    NOT NULL,
+  max_val   REAL    NOT NULL,
+  count     INTEGER NOT NULL,
+  PRIMARY KEY (sensor_id, hour_ts)
+);
 ```
+
+> **Cron trigger**: the hourly rollup is declared in `worker/wrangler.toml`
+> (`[triggers] crons = ["0 * * * *"]`) and is registered automatically on the next
+> `wrangler deploy`. No dashboard configuration is needed. The rollup table stays
+> empty (and the long windows show nothing) until the first cron tick fires after a
+> deploy that includes the trigger.
 
 ---
 
@@ -228,10 +276,36 @@ Go to **Workers & Pages** → **rpi-sentinel-worker** → **Logs** (real-time ta
 
 ### Query a time range manually
 
+Raw points:
+
 ```bash
 curl -s "https://rpi-sentinel-worker.<your-account>.workers.dev/history\
 ?sensor_id=cpu-temp&since_ts=1716739200000&until_ts=1716825600000&limit=2000"
+# → {"sensor_id":"cpu-temp","points":[{"ts":...,"value":...}],"truncated":false}
 ```
+
+Down-sampled (banded) — add `bucket_ms` (≥ 3600000 = 1h); served from the rollup:
+
+```bash
+# 1-day buckets over the last year (~365 points), from readings_hourly
+curl -s "https://rpi-sentinel-worker.<your-account>.workers.dev/history\
+?sensor_id=cpu-temp&since_ts=$(( $(date +%s%3N) - 31536000000 ))&bucket_ms=86400000"
+# → {"sensor_id":"cpu-temp","points":[{"ts":...,"avg":...,"min":...,"max":...}],"aggregated":true}
+```
+
+### Inspect / force the rollup
+
+```sql
+-- How far the rollup has caught up, per sensor:
+SELECT sensor_id, COUNT(*), datetime(MAX(hour_ts)/1000,'unixepoch') FROM readings_hourly GROUP BY sensor_id;
+```
+
+The cron fires hourly; to backfill `readings_hourly` from existing raw data
+immediately (e.g. right after first deploy), run **Trigger Scheduled Event** under
+**Workers & Pages** → **rpi-sentinel-worker** → **Settings** → **Trigger Events**,
+or `npx wrangler tail` and wait for the next `0 * * * *` tick. Each run only covers a
+trailing 6 h window — to backfill a long history at once, run the rollup query from
+`runRollup()` in the D1 Console with a wider lower bound.
 
 ### Rotate the API key
 
