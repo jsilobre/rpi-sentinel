@@ -14,13 +14,36 @@ RPi daemon (CloudStorageHandler)
 Dashboard (GitHub Pages) ─── GET /history?... ──────────┘
 ```
 
-The Worker has two HTTP endpoints plus a scheduled (cron) handler:
+The Worker has three HTTP endpoints plus a scheduled (cron) handler:
 
 | Trigger | Caller | Auth |
 |---|---|---|
 | `POST /ingest` | RPi daemon | `Authorization: Bearer <API_KEY>` |
 | `GET /history` | Dashboard (browser) | None (CORS public) |
+| `GET /export` | Dashboard (browser) | None (CORS public) |
 | cron `0 * * * *` | Cloudflare scheduler | n/a |
+
+### `GET /export` — full CSV dump
+
+Streams the **entire** raw `readings` table as a CSV download — there is no
+point cap (unlike `/history`, which down-samples to ≤ 2 000 points). Rows are
+paged internally (keyset on `rowid`, 5 000 rows/page) and streamed, so the
+export scales to arbitrarily large datasets without hitting D1's per-query
+result limit or the Worker's memory budget. The dashboard's **⬇ Export CSV**
+button links straight to this endpoint, so the browser downloads it natively.
+
+Query params (all optional; default = the whole table):
+
+| Param | Meaning |
+|---|---|
+| `sensor_id` | Restrict to one sensor |
+| `since_ts` | Epoch ms — lower bound (inclusive) |
+| `until_ts` | Epoch ms — upper bound (inclusive) |
+
+Response: `text/csv` with `Content-Disposition: attachment`, columns
+`sensor_id,metric,ts,iso_time,value` (one row per reading; `iso_time` is the
+human-readable ISO-8601 form of `ts`). The endpoint is public (CORS), the same
+posture as `/history`.
 
 ### Time windows & down-sampling
 
@@ -237,6 +260,14 @@ curl -s -X POST https://rpi-sentinel-worker.<your-account>.workers.dev/ingest \
 ```bash
 curl -s "https://rpi-sentinel-worker.<your-account>.workers.dev/history?sensor_id=cpu-temp"
 # → {"sensor_id":"cpu-temp","points":[{"ts":1716825600000,"value":55.1}],"truncated":false}
+```
+
+### Test GET /export
+
+```bash
+curl -s "https://rpi-sentinel-worker.<your-account>.workers.dev/export"
+# → sensor_id,metric,ts,iso_time,value
+#   "cpu-temp","temperature",1716825600000,2024-05-27T16:00:00.000Z,55.1
 ```
 
 ### Verify daemon is posting

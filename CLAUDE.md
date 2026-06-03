@@ -105,6 +105,7 @@ The dashboard supports two history sources that work simultaneously:
 - Dashboard fetches historical windows via `GET /history?sensor_id=...&since_ts=...` — no MQTT required
 - Retention is unlimited; custom time ranges (datetime-local picker) available in the dashboard
 - Long windows (`1mo`/`6mo`/`1y`, and custom ranges > 7d) are **down-sampled**: `GET /history` with `bucket_ms` returns avg + min/max band points from the `readings_hourly` rollup table, which a scheduled (cron) Worker handler populates hourly. These windows are Cloudflare-only (no MQTT path).
+- The dashboard's **⬇ Export CSV** button downloads the entire D1 `readings` table via `GET /export` (no point cap; rows are streamed and paged internally). Enabled only when cloud storage is configured. See `docs/cloudflare-setup.md`.
 
 See `docs/persistence.md` for the SQLite/MQTT details and `docs/cloudflare-setup.md` for the cloud setup.
 

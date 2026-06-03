@@ -183,6 +183,95 @@ async function handleAggregatedHistory(
   return json({ sensor_id: sensorId, points: result.results, aggregated: true });
 }
 
+// ── GET /export ─────────────────────────────────────────────────────────────────
+// Full CSV dump of the raw readings table. Unlike /history there is NO point cap:
+// every matching row is returned. The response is streamed and the rows are paged
+// internally (keyset on rowid) so arbitrarily large datasets stay within D1's
+// per-query result limit and the Worker's memory budget.
+//
+// Query params (all optional; default = entire table):
+//   sensor_id   restrict to one sensor
+//   since_ts    epoch ms — lower bound (inclusive)
+//   until_ts    epoch ms — upper bound (inclusive)
+//
+// Auth: public (CORS), same posture as GET /history.
+// Columns: sensor_id,metric,ts,iso_time,value
+const EXPORT_PAGE_SIZE = 5000;
+
+// Quote a CSV field per RFC 4180 (wrap in quotes, double any internal quote).
+function csvField(s: string): string {
+  return `"${s.replace(/"/g, '""')}"`;
+}
+
+interface ExportRow {
+  rowid:     number;
+  sensor_id: string;
+  metric:    string;
+  value:     number;
+  ts:        number;
+}
+
+function handleExport(request: Request, env: Env): Response {
+  const url      = new URL(request.url);
+  const sensorId = url.searchParams.get('sensor_id');
+  const sinceTs  = parseInt(url.searchParams.get('since_ts') ?? '0', 10);
+  const untilTs  = parseInt(url.searchParams.get('until_ts') ?? '0', 10);
+
+  const conditions: string[] = ['rowid > ?'];
+  const baseParams: (string | number)[] = [];
+  if (sensorId)    { conditions.push('sensor_id = ?'); baseParams.push(sensorId); }
+  if (sinceTs > 0) { conditions.push('ts >= ?');       baseParams.push(sinceTs); }
+  if (untilTs > 0) { conditions.push('ts <= ?');       baseParams.push(untilTs); }
+
+  const sql =
+    `SELECT rowid, sensor_id, metric, value, ts
+       FROM readings
+      WHERE ${conditions.join(' AND ')}
+      ORDER BY rowid ASC
+      LIMIT ${EXPORT_PAGE_SIZE}`;
+
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      controller.enqueue(encoder.encode('sensor_id,metric,ts,iso_time,value\n'));
+      let lastRowId = 0;
+      try {
+        for (;;) {
+          const page = await env.DB
+            .prepare(sql)
+            .bind(lastRowId, ...baseParams)
+            .all<ExportRow>();
+          const rows = page.results;
+          if (rows.length === 0) break;
+
+          let chunk = '';
+          for (const r of rows) {
+            const iso = new Date(r.ts).toISOString();
+            chunk += `${csvField(r.sensor_id)},${csvField(r.metric)},${r.ts},${iso},${r.value}\n`;
+          }
+          controller.enqueue(encoder.encode(chunk));
+
+          lastRowId = rows[rows.length - 1].rowid;
+          if (rows.length < EXPORT_PAGE_SIZE) break;
+        }
+        controller.close();
+      } catch (e) {
+        controller.error(e);
+      }
+    },
+  });
+
+  const date = new Date().toISOString().slice(0, 10);
+  return new Response(stream, {
+    status: 200,
+    headers: {
+      'Content-Type':        'text/csv; charset=utf-8',
+      'Content-Disposition': `attachment; filename="rpi-sentinel-export-${date}.csv"`,
+      ...CORS,
+    },
+  });
+}
+
 // ── Scheduled rollup (cron) ─────────────────────────────────────────────────────
 // Re-aggregates the trailing ROLLUP_LOOKBACK_MS of raw readings into one row
 // per sensor per hour, upserting so re-runs and late readings self-correct.
@@ -235,6 +324,7 @@ export default {
     if (method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS });
     if (method === 'POST' && path === '/ingest')  return handleIngest(request, env);
     if (method === 'GET'  && path === '/history') return handleHistory(request, env);
+    if (method === 'GET'  && path === '/export')  return handleExport(request, env);
 
     return new Response('Not found', { status: 404 });
   },
