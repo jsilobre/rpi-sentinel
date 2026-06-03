@@ -109,20 +109,44 @@ async function handleHistory(request: Request, env: Env): Promise<Response> {
   const rawLimit = parseInt(url.searchParams.get('limit') ?? '500', 10);
   const limit    = Math.min(Math.max(rawLimit, 1), 2000);
 
-  // Build query dynamically to keep index usage optimal.
+  // Build the window filter dynamically to keep index usage optimal.
   const conditions: string[] = ['sensor_id = ?'];
-  const params: (string | number)[] = [sensorId];
+  const filterParams: (string | number)[] = [sensorId];
 
-  if (sinceTs > 0) { conditions.push('ts >= ?'); params.push(sinceTs); }
-  if (untilTs > 0) { conditions.push('ts <= ?'); params.push(untilTs); }
+  if (sinceTs > 0) { conditions.push('ts >= ?'); filterParams.push(sinceTs); }
+  if (untilTs > 0) { conditions.push('ts <= ?'); filterParams.push(untilTs); }
+  const where = conditions.join(' AND ');
 
-  // Fetch DESC to honour LIMIT, then reverse to return ASC (chronological).
-  const sql = `SELECT ts, value FROM readings WHERE ${conditions.join(' AND ')} ORDER BY ts DESC LIMIT ?`;
-  params.push(limit + 1); // one extra to detect truncation
+  // A naive `ORDER BY ts DESC LIMIT n` returns only the most recent n points,
+  // which for a 24h/7d window (tens of thousands of readings) collapses to just
+  // the last few minutes — making those filters look broken. Instead, downsample
+  // uniformly across the whole window so the curve spans the full range, matching
+  // HistoryStore::since() on the MQTT path. NTILE splits the windowed rows into
+  // `limit` even buckets; taking the first row of each bucket yields at most
+  // `limit` points that cover the entire window (first sample preserved).
+  const sql = `
+    WITH windowed AS (
+      SELECT ts, value,
+             NTILE(?) OVER (ORDER BY ts ASC) AS bucket,
+             COUNT(*)  OVER ()               AS total
+      FROM readings
+      WHERE ${where}
+    ),
+    bucketed AS (
+      SELECT ts, value, total,
+             ROW_NUMBER() OVER (PARTITION BY bucket ORDER BY ts ASC) AS rb
+      FROM windowed
+    )
+    SELECT ts, value, total FROM bucketed WHERE rb = 1 ORDER BY ts ASC`;
 
-  const result = await env.DB.prepare(sql).bind(...params).all<HistoryPoint>();
-  const truncated = result.results.length > limit;
-  const points    = (truncated ? result.results.slice(0, limit) : result.results).reverse();
+  const result = await env.DB
+    .prepare(sql)
+    .bind(limit, ...filterParams)
+    .all<HistoryPoint & { total: number }>();
+
+  const total     = result.results.length ? result.results[0].total : 0;
+  const truncated = total > limit;
+  const points    = result.results.map(({ ts, value }) => ({ ts, value }));
 
   return json({ sensor_id: sensorId, points, truncated });
 }
