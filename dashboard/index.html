@@ -158,6 +158,7 @@
     <button class="icon-btn" id="refresh-btn" title="Force immediate sensor poll" disabled>↻ Refresh</button>
     <button class="icon-btn" id="organize-btn" title="Arrange sensor windows alphabetically">⊞ Organize</button>
     <button class="icon-btn" id="config-btn" title="Configure thresholds">⚙ Config</button>
+    <button class="icon-btn" id="export-btn" title="Cloud storage required to export" disabled>⬇ Export CSV</button>
     <button class="icon-btn danger" id="clear-btn" title="Delete all stored history">🗑 Clear Data</button>
     <button class="icon-btn" id="theme-btn" title="Toggle theme">☾</button>
   </header>
@@ -819,6 +820,27 @@ document.getElementById('refresh-btn').addEventListener('click', () => {
     updateRefreshButtonState();
   }, 2000);
 });
+
+// ── Export full database (CSV) ─────────────────────────────────────────────────
+// Streams the entire Cloudflare D1 readings table as a CSV file. Enabled only when
+// cloud storage is configured (the local 7-day SQLite store is not exported here).
+(function initExportButton() {
+  const btn = document.getElementById('export-btn');
+  if (!CLOUD_ENABLED) return;  // leave disabled, with the "cloud required" tooltip
+  btn.disabled = false;
+  btn.title = 'Export all stored data as CSV';
+  btn.addEventListener('click', () => {
+    const a = document.createElement('a');
+    a.href = CLOUD_WORKER_URL + '/export';
+    a.download = `rpi-sentinel-export-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    const prev = btn.textContent;
+    btn.textContent = '⬇ Exporting…';
+    setTimeout(() => { btn.textContent = prev; }, 2000);
+  });
+})();
 
 // ── Clear all stored history ───────────────────────────────────────────────────
 document.getElementById('clear-btn').addEventListener('click', () => {
