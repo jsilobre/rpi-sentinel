@@ -119,6 +119,18 @@ struct OtlpExporter::Impl {
     opentelemetry::nostd::shared_ptr<otlp_api::ObservableInstrument> threshold_crit;
     opentelemetry::nostd::shared_ptr<otlp_log::Logger>               logger;
 
+    // True when the crossed threshold is the sensor's critical one (the
+    // event itself doesn't say which level fired). Thresholds are captured
+    // at construction; warn < crit is enforced by config validation.
+    bool is_crit_threshold(const SensorEvent& ev) const
+    {
+        for (const auto& e : thresholds.entries) {
+            if (e.sensor_id == ev.sensor_id && e.metric == ev.metric)
+                return static_cast<double>(ev.threshold) >= e.crit;
+        }
+        return false;
+    }
+
     void emit_threshold_log(const SensorEvent& ev, otlp_log::Severity severity, const char* event_type)
     {
         if (!logger) return;
@@ -280,7 +292,10 @@ void OtlpExporter::on_event(const SensorEvent& event)
             impl_->readings.set(event.sensor_id, event.metric, static_cast<double>(event.value));
             break;
         case Type::ThresholdExceeded:
-            impl_->emit_threshold_log(event, otlp_log::Severity::kWarn, "threshold_exceeded");
+            impl_->emit_threshold_log(event,
+                impl_->is_crit_threshold(event) ? otlp_log::Severity::kError
+                                                : otlp_log::Severity::kWarn,
+                "threshold_exceeded");
             break;
         case Type::ThresholdRecovered:
             impl_->emit_threshold_log(event, otlp_log::Severity::kInfo, "threshold_recovered");

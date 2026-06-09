@@ -147,23 +147,34 @@ void HistoryStore::insert(std::string_view sensor_id, std::string_view metric,
 
     if (++inserts_since_rotate_ >= ROTATE_EVERY_N_INSERTS) {
         inserts_since_rotate_ = 0;
-        // Inline the rotate work to avoid recursive locking on mutex_.
-        const int64_t cutoff = now_ms() - static_cast<int64_t>(retention_days_) * 86'400'000LL;
-        char* err = nullptr;
-        sqlite3_exec(db_,
-            std::format("DELETE FROM readings WHERE ts < {};", cutoff).c_str(),
-            nullptr, nullptr, &err);
-        if (err) { sqlite3_free(err); err = nullptr; }
-        sqlite3_exec(db_,
-            std::format(
-                "DELETE FROM readings WHERE rowid IN ("
-                "  SELECT rowid FROM readings AS r "
-                "  WHERE r.sensor_id = readings.sensor_id "
-                "  ORDER BY ts DESC LIMIT -1 OFFSET {}"
-                ");", max_points_per_sensor_).c_str(),
-            nullptr, nullptr, &err);
-        if (err) { sqlite3_free(err); }
+        rotate_unlocked();
     }
+}
+
+void HistoryStore::rotate_unlocked()
+{
+    const int64_t cutoff = now_ms() - static_cast<int64_t>(retention_days_) * 86'400'000LL;
+    char* err = nullptr;
+    sqlite3_exec(db_,
+        std::format("DELETE FROM readings WHERE ts < {};", cutoff).c_str(),
+        nullptr, nullptr, &err);
+    if (err) { sqlite3_free(err); err = nullptr; }
+
+    // Single-pass per-sensor cap via ROW_NUMBER. The previous correlated
+    // subquery re-ran an index scan per row (quadratic at 50k points/sensor)
+    // and stalled every monitor thread, since this runs synchronously in the
+    // dispatch path under mutex_.
+    sqlite3_exec(db_,
+        std::format(
+            "DELETE FROM readings WHERE rowid IN ("
+            "  SELECT rowid FROM ("
+            "    SELECT rowid, ROW_NUMBER() OVER ("
+            "      PARTITION BY sensor_id ORDER BY ts DESC) AS rn"
+            "    FROM readings"
+            "  ) WHERE rn > {}"
+            ");", max_points_per_sensor_).c_str(),
+        nullptr, nullptr, &err);
+    if (err) { sqlite3_free(err); }
 }
 
 std::vector<StoredPoint> HistoryStore::recent(std::string_view sensor_id, int limit) const
@@ -258,22 +269,7 @@ void HistoryStore::rotate()
 {
     std::lock_guard lock(mutex_);
     if (!db_) return;
-
-    const int64_t cutoff = now_ms() - static_cast<int64_t>(retention_days_) * 86'400'000LL;
-    char* err = nullptr;
-    sqlite3_exec(db_,
-        std::format("DELETE FROM readings WHERE ts < {};", cutoff).c_str(),
-        nullptr, nullptr, &err);
-    if (err) { sqlite3_free(err); err = nullptr; }
-    sqlite3_exec(db_,
-        std::format(
-            "DELETE FROM readings WHERE rowid IN ("
-            "  SELECT rowid FROM readings AS r "
-            "  WHERE r.sensor_id = readings.sensor_id "
-            "  ORDER BY ts DESC LIMIT -1 OFFSET {}"
-            ");", max_points_per_sensor_).c_str(),
-        nullptr, nullptr, &err);
-    if (err) { sqlite3_free(err); }
+    rotate_unlocked();
 }
 
 void HistoryStore::clear_all()

@@ -53,6 +53,7 @@ private:
     void apply_pragmas();
     void ensure_schema();
     void prepare_statements();
+    void rotate_unlocked();  // caller must hold mutex_
 
     std::filesystem::path db_path_;
     int                   retention_days_;
