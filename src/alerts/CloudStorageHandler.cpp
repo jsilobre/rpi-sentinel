@@ -56,10 +56,10 @@ struct CloudStorageHandler::Impl {
     std::string             ingest_url;
     std::string             api_key;
 
-    std::queue<QueueItem>   queue;
-    std::mutex              mu;
-    std::condition_variable cv;
-    std::atomic<bool>       overflow_logged{false};
+    std::queue<QueueItem>       queue;
+    std::mutex                  mu;
+    std::condition_variable_any cv;
+    std::atomic<bool>           overflow_logged{false};
 
     std::jthread            worker;
 
@@ -88,9 +88,11 @@ struct CloudStorageHandler::Impl {
 
             {
                 std::unique_lock lk{mu};
-                cv.wait_for(lk,
+                // stop_token-aware wait: request_stop() wakes it immediately,
+                // so shutdown doesn't stall for the full drain interval.
+                cv.wait_for(lk, stop,
                     std::chrono::milliseconds{DRAIN_WAIT_MS},
-                    [&]{ return !queue.empty() || stop.stop_requested(); });
+                    [&]{ return !queue.empty(); });
 
                 while (!queue.empty() && batch.size() < BATCH_SIZE) {
                     batch.push_back(std::move(queue.front()));
@@ -194,12 +196,12 @@ void CloudStorageHandler::on_event(const SensorEvent& event)
 
     std::lock_guard lk{impl_->mu};
     if (impl_->queue.size() >= QUEUE_CAPACITY) {
-        impl_->queue.pop(); // drop oldest
+        impl_->queue.pop(); // drop oldest to make room for the new reading
         if (!impl_->overflow_logged.exchange(true))
             std::println(stderr, "[CloudStorage] Queue full; dropping oldest item");
-        return;
+    } else {
+        impl_->overflow_logged.store(false);
     }
-    impl_->overflow_logged.store(false);
     impl_->queue.push({
         .sensor_id = event.sensor_id,
         .metric    = event.metric,

@@ -129,3 +129,20 @@ TEST_F(MqttHistoryResponderTest, MalformedRequestReturnsEmptyString)
     EXPECT_TRUE(pub_->build_history_response(R"({"sensor_id":"s1"})").empty());
     EXPECT_TRUE(pub_->build_history_response(R"({"request_id":"x"})").empty());
 }
+
+TEST_F(MqttHistoryResponderTest, MistypedFieldsDoNotThrow)
+{
+    // Wrong JSON types must be rejected (empty response), never thrown —
+    // these payloads arrive via mosquitto C callbacks where an exception
+    // would terminate the daemon.
+    EXPECT_NO_THROW({
+        EXPECT_TRUE(pub_->build_history_response(R"({"request_id":42,"sensor_id":"s1"})").empty());
+        EXPECT_TRUE(pub_->build_history_response(R"({"request_id":"x","sensor_id":[1,2]})").empty());
+    });
+    // A mistyped limit falls back to the default instead of throwing.
+    EXPECT_NO_THROW({
+        auto body = pub_->build_history_response(
+            R"({"request_id":"x","sensor_id":"s1","limit":"ten"})");
+        EXPECT_FALSE(body.empty());
+    });
+}

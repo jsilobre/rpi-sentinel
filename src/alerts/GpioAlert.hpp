@@ -2,11 +2,14 @@
 
 #include "IAlertHandler.hpp"
 #include <filesystem>
+#include <string>
+#include <unordered_map>
 
 namespace rpi {
 
 // Drives a GPIO output pin via the Linux sysfs interface.
-// HIGH on ThresholdExceeded, LOW on ThresholdRecovered.
+// HIGH while at least one sensor has an unrecovered ThresholdExceeded,
+// LOW once every alert has recovered.
 // sysfs_root defaults to /sys/class/gpio; override in tests.
 class GpioAlert final : public IAlertHandler {
 public:
@@ -24,6 +27,9 @@ private:
     int                   pin_;
     std::filesystem::path sysfs_root_;
     bool                  ready_{false};
+    // Unrecovered alerts per sensor (warn and crit each count once).
+    // No mutex needed: EventBus serializes all on_event() calls.
+    std::unordered_map<std::string, int> active_alerts_;
 };
 
 } // namespace rpi

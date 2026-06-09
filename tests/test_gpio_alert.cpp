@@ -101,6 +101,59 @@ TEST(GpioAlert, ThresholdRecoveredSetsLow)
     EXPECT_EQ(read_file(root / "gpio17" / "value"), "0");
 }
 
+// ─── Multiple sensors share the pin ──────────────────────────────────────────
+
+TEST(GpioAlert, PinStaysHighWhileAnotherSensorStillExceeded)
+{
+    auto root = make_mock_sysfs(17);
+    rpi::GpioAlert alert(17, root);
+
+    auto make_event = [](rpi::SensorEvent::Type type, const std::string& id) {
+        rpi::SensorEvent ev;
+        ev.type      = type;
+        ev.sensor_id = id;
+        ev.metric    = "temperature";
+        ev.value     = 75.0f;
+        ev.threshold = 70.0f;
+        return ev;
+    };
+
+    alert.on_event(make_event(rpi::SensorEvent::Type::ThresholdExceeded, "temp1"));
+    alert.on_event(make_event(rpi::SensorEvent::Type::ThresholdExceeded, "temp2"));
+
+    // temp2 recovers, but temp1 is still in alert → pin must stay HIGH.
+    alert.on_event(make_event(rpi::SensorEvent::Type::ThresholdRecovered, "temp2"));
+    EXPECT_EQ(read_file(root / "gpio17" / "value"), "1");
+
+    alert.on_event(make_event(rpi::SensorEvent::Type::ThresholdRecovered, "temp1"));
+    EXPECT_EQ(read_file(root / "gpio17" / "value"), "0");
+}
+
+TEST(GpioAlert, WarnAndCritOnSameSensorBothMustRecover)
+{
+    auto root = make_mock_sysfs(17);
+    rpi::GpioAlert alert(17, root);
+
+    auto make_event = [](rpi::SensorEvent::Type type, float threshold) {
+        rpi::SensorEvent ev;
+        ev.type      = type;
+        ev.sensor_id = "temp1";
+        ev.metric    = "temperature";
+        ev.value     = 75.0f;
+        ev.threshold = threshold;
+        return ev;
+    };
+
+    alert.on_event(make_event(rpi::SensorEvent::Type::ThresholdExceeded, 30.0f)); // warn
+    alert.on_event(make_event(rpi::SensorEvent::Type::ThresholdExceeded, 40.0f)); // crit
+
+    alert.on_event(make_event(rpi::SensorEvent::Type::ThresholdRecovered, 40.0f)); // crit recovers
+    EXPECT_EQ(read_file(root / "gpio17" / "value"), "1");
+
+    alert.on_event(make_event(rpi::SensorEvent::Type::ThresholdRecovered, 30.0f)); // warn recovers
+    EXPECT_EQ(read_file(root / "gpio17" / "value"), "0");
+}
+
 // ─── Reading events are ignored ──────────────────────────────────────────────
 
 TEST(GpioAlert, ReadingEventDoesNotChangePin)

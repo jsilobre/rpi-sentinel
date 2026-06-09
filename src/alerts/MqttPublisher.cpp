@@ -6,6 +6,7 @@
 #include <mosquitto.h>
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <format>
 #include <nlohmann/json.hpp>
 #include <print>
@@ -36,11 +37,36 @@ static BrokerAddress parse_broker_url(const std::string& url)
         rest = rest.substr(rest.find("://") + 3);
     }
 
-    auto colon = rest.rfind(':');
-    if (colon != std::string::npos) {
-        return {rest.substr(0, colon), std::stoi(rest.substr(colon + 1)), use_tls};
+    std::string host = rest;
+    std::string port_str;
+
+    if (!rest.empty() && rest.front() == '[') {
+        // Bracketed IPv6 literal, e.g. [::1]:8883
+        if (auto close = rest.find(']'); close != std::string::npos) {
+            host = rest.substr(1, close - 1);
+            if (close + 1 < rest.size() && rest[close + 1] == ':')
+                port_str = rest.substr(close + 2);
+        }
+    } else if (auto colon = rest.rfind(':'); colon != std::string::npos) {
+        // A single colon is host:port; multiple colons mean an unbracketed
+        // IPv6 literal with no port.
+        if (rest.find(':') == colon) {
+            host     = rest.substr(0, colon);
+            port_str = rest.substr(colon + 1);
+        }
     }
-    return {rest, port, use_tls};
+
+    if (!port_str.empty()) {
+        try {
+            port = std::stoi(port_str);
+        } catch (...) {
+            throw std::runtime_error(std::format("Invalid port in broker URL: '{}'", url));
+        }
+        if (port < 1 || port > 65535) {
+            throw std::runtime_error(std::format("Port out of range in broker URL: '{}'", url));
+        }
+    }
+    return {host, port, use_tls};
 }
 
 static std::string format_iso8601(std::chrono::system_clock::time_point tp)
@@ -186,7 +212,16 @@ void MqttPublisher::publish_config(const std::string& config_json)
 void MqttPublisher::on_message_cb(struct mosquitto*, void* userdata,
                                    const struct mosquitto_message* msg)
 {
-    if (userdata) static_cast<MqttPublisher*>(userdata)->handle_message(msg);
+    if (!userdata) return;
+    // An exception escaping through mosquitto's C callback would call
+    // std::terminate — any client with publish rights could crash the daemon.
+    try {
+        static_cast<MqttPublisher*>(userdata)->handle_message(msg);
+    } catch (const std::exception& e) {
+        std::println(stderr, "[MqttPublisher] message handler error: {}", e.what());
+    } catch (...) {
+        std::println(stderr, "[MqttPublisher] message handler error: unknown exception");
+    }
 }
 
 void MqttPublisher::handle_message(const struct mosquitto_message* msg)
@@ -230,8 +265,10 @@ void MqttPublisher::handle_message(const struct mosquitto_message* msg)
         return;
     }
 
-    if (!j.contains("sensor_id") || !j.contains("threshold_warn") || !j.contains("threshold_crit")) {
-        std::println(stderr, "[MqttPublisher] config/set: missing fields");
+    if (!j.contains("sensor_id")      || !j["sensor_id"].is_string()
+     || !j.contains("threshold_warn") || !j["threshold_warn"].is_number()
+     || !j.contains("threshold_crit") || !j["threshold_crit"].is_number()) {
+        std::println(stderr, "[MqttPublisher] config/set: missing or mistyped fields");
         return;
     }
 
@@ -239,7 +276,9 @@ void MqttPublisher::handle_message(const struct mosquitto_message* msg)
     const float warn = j["threshold_warn"].get<float>();
     const float crit = j["threshold_crit"].get<float>();
 
-    if (warn <= 0.0f || crit <= 0.0f || warn >= crit) {
+    // Same rule as ConfigLoader: warn < crit. Negative/zero thresholds are
+    // valid (e.g. freezer monitoring).
+    if (!std::isfinite(warn) || !std::isfinite(crit) || warn >= crit) {
         std::println(stderr, "[MqttPublisher] config/set: invalid thresholds for '{}'", id);
         return;
     }
@@ -261,12 +300,15 @@ std::string MqttPublisher::build_history_response(const std::string& request_pay
         return {};
     }
 
-    if (!req.contains("request_id") || !req.contains("sensor_id")) return {};
+    if (!req.contains("request_id") || !req["request_id"].is_string()) return {};
+    if (!req.contains("sensor_id")  || !req["sensor_id"].is_string())  return {};
     const auto request_id = req["request_id"].get<std::string>();
     const auto sensor_id  = req["sensor_id"].get<std::string>();
 
     constexpr int kHardCap = 500;
-    int limit = req.contains("limit") ? req["limit"].get<int>() : 240;
+    int limit = 240;
+    if (req.contains("limit") && req["limit"].is_number())
+        limit = static_cast<int>(req["limit"].get<double>());
     limit = std::clamp(limit, 1, kHardCap);
 
     std::vector<StoredPoint> points;

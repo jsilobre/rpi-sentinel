@@ -166,13 +166,17 @@ int main(int argc, char* argv[])
     if (mqtt_pub) mqtt_pub->disconnect();
 #endif
     hub.stop();
+    // The bus holds shared_ptr copies of every handler; drop them so the
+    // resets below are the last reference and actually destroy the handlers.
+    bus.clear_handlers();
 #ifdef ENABLE_OTLP
     // Reset after monitors have stopped so any final dispatches are
     // queued, then destruction flushes the SDK providers.
     otlp_exporter.reset();
 #endif
 #ifdef ENABLE_CLOUD_STORAGE
-    // Destroy handler (joins sender thread + flushes) before curl cleanup.
+    // Destroy handler (joins sender thread + flushes) before curl cleanup;
+    // curl_global_cleanup() while a transfer is in flight is UB.
     cloud_handler.reset();
     curl_global_cleanup();
 #endif

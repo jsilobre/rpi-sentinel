@@ -38,7 +38,13 @@ GpioAlert::~GpioAlert()
 void GpioAlert::on_event(const SensorEvent& event)
 {
     if (event.type == SensorEvent::Type::Reading) return;
-    set_pin(event.type == SensorEvent::Type::ThresholdExceeded);
+
+    if (event.type == SensorEvent::Type::ThresholdExceeded) {
+        ++active_alerts_[event.sensor_id];
+    } else if (auto it = active_alerts_.find(event.sensor_id); it != active_alerts_.end()) {
+        if (--it->second <= 0) active_alerts_.erase(it);
+    }
+    set_pin(!active_alerts_.empty());
 }
 
 void GpioAlert::set_pin(bool active)

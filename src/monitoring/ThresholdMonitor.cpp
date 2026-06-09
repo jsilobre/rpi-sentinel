@@ -38,7 +38,12 @@ void ThresholdMonitor::update_thresholds(float warn, float crit)
 
 void ThresholdMonitor::force_poll()
 {
-    force_poll_flag_.store(true);
+    // Set the flag under the sleep mutex so it can't be set between the
+    // waiter's predicate check and its reset (which would lose the wakeup).
+    {
+        std::lock_guard lock(sleep_mtx_);
+        force_poll_flag_.store(true);
+    }
     sleep_cv_.notify_one();
 }
 
