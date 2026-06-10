@@ -1,0 +1,75 @@
+[Unit]
+Description=Raspberry Pi sensor monitoring daemon (rpi-sentinel)
+Documentation=https://github.com/jsilobre/rpi-sentinel
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=simple
+ExecStart=@CMAKE_INSTALL_FULL_BINDIR@/rpi-sentinel @CMAKE_INSTALL_FULL_SYSCONFDIR@/rpi-sentinel/config.json
+
+# Optional secrets (web auth token, OTLP basic auth, MQTT password, ...).
+# The leading '-' makes the file optional; create it with mode 0600 and put
+# KEY=VALUE lines, e.g.:
+#   RPI_SENTINEL_WEB_TOKEN=replace-me
+#   GRAFANA_CLOUD_OTLP_AUTH=Basic base64(...)
+EnvironmentFile=-@CMAKE_INSTALL_FULL_SYSCONFDIR@/rpi-sentinel/secrets.env
+
+# Crash recovery: restart on non-zero exit (5 s back-off, max 5 within 60 s).
+# See StartLimit* under [Unit].
+Restart=on-failure
+RestartSec=5
+
+# Identity & state directory.
+# DynamicUser allocates a transient UID/GID at start and StateDirectory creates
+# /var/lib/rpi-sentinel owned by it — perfect for the SQLite history DB. Set
+# `history.db_path` in config.json to `/var/lib/rpi-sentinel/history.db` (or a
+# relative path; WorkingDirectory points at the state dir).
+DynamicUser=yes
+StateDirectory=rpi-sentinel
+StateDirectoryMode=0750
+WorkingDirectory=%S/rpi-sentinel
+
+# Sandbox.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+
+# Resource caps (tune as needed).
+LimitNOFILE=4096
+
+# ── Hardware access notes ────────────────────────────────────────────────────
+# DS18B20 / DHT11 readers go through sysfs (/sys/bus/w1/devices/...,
+# /sys/bus/iio/...), which is read-only and accessible to DynamicUser by
+# default — no extra config needed.
+#
+# GpioAlert writes to /sys/class/gpio/{export,gpioN/value}. On Raspberry Pi
+# OS those nodes are owned by root:gpio with mode 0660. DynamicUser cannot
+# join the gpio group, so to enable GpioAlert either:
+#   (a) drop DynamicUser=yes and add User=root  (simple, less hardened), or
+#   (b) create a static `rpi-sentinel` user in the `gpio` group and use
+#       User=rpi-sentinel + SupplementaryGroups=gpio  (recommended).
+# In either case also relax ProtectSystem to allow /sys/class/gpio writes:
+#   ReadWritePaths=/sys/class/gpio
+
+[Install]
+WantedBy=multi-user.target
