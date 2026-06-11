@@ -14,10 +14,11 @@ Environment=MQTT_USER=youruser
 Environment=MQTT_PASS=yourpass
 Environment=MQTT_PREFIX=rpi
 Environment=MQTT_TLS=true
-Environment=POLL_SECONDS=300
-# Optional caps so the display shows a percentage instead of raw tokens:
-# Environment=FIVE_HOUR_LIMIT=0
-# Environment=WEEKLY_LIMIT=0
+Environment=POLL_SECONDS=600
+# Token is read from ~/.claude/.credentials.json of the User above. If this
+# machine never runs `claude`, use a long-lived token from `claude setup-token`:
+# Environment=CLAUDE_OAUTH_TOKEN=...
+# Environment=CLAUDE_CREDENTIALS=/home/pi/.claude/.credentials.json
 ExecStart=/usr/bin/python3 usage_publisher.py
 Restart=on-failure
 RestartSec=10
