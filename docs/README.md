@@ -34,7 +34,8 @@ shutdown signal.
 
 [`companion/`](../companion/) holds Pi-side tooling that lives alongside the daemon but is
 not part of the C++ build. It currently contains the **Claude usage publisher**: a small
-standalone Python sidecar that reads this machine's local Claude Code usage via `ccusage`
+standalone Python sidecar that polls Anthropic's OAuth usage endpoint (account-wide, the
+same data as Claude Code's `/usage` screen)
 and publishes it (retained, QoS 1) to `<MQTT_PREFIX>/claude/usage` on the same broker the
 daemon uses. The `rpi-sentinel-display` ESP32 subscribes to that topic to render its
 **Claude usage** page — no Claude credential ever touches the display. See

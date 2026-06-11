@@ -1,163 +1,155 @@
 #!/usr/bin/env python3
-"""Publish Claude Code usage (5h block + weekly) to MQTT for rpi-sentinel-display.
+"""Publish account-wide Claude usage to MQTT for the rpi-sentinel display.
 
-Runs on the Raspberry Pi where Claude Code is already logged in. It reads local
-usage with `ccusage` (https://github.com/ryoppippi/ccusage) and publishes a small
-JSON payload to `<prefix>/claude/usage`. No Claude credentials ever touch the
-ESP32 display: the display only subscribes to MQTT.
+Polls Anthropic's OAuth usage endpoint -- the same one Claude Code's /usage
+screen reads -- so the numbers reflect the whole account (every device),
+not just sessions run on this machine. This replaces the ccusage-based
+publisher, which only saw local Claude Code logs.
 
-Payload shape (percent / resets_in_seconds are optional):
-    {
-      "five_hour": {"used": 1234567, "limit": 0, "percent": 42, "resets_in_seconds": 7800},
-      "weekly":    {"used": 9876543, "limit": 0}
-    }
+Requires a logged-in Claude Code install (token read from
+~/.claude/.credentials.json) or a long-lived token in CLAUDE_OAUTH_TOKEN.
 
-NOTE: the numbers are an ESTIMATE derived from this machine's local Claude Code
-logs; they are not the account-wide subscription counters. A configured limit
-(FIVE_HOUR_LIMIT / WEEKLY_LIMIT) turns the raw token count into a percentage.
+Payload published to <MQTT_PREFIX>/claude/usage (QoS 1, retained), matching
+the rpi-sentinel-display firmware contract:
+
+    {"five_hour": {"percent": 7, "resets_in_seconds": 7800},
+     "weekly":    {"percent": 9, "resets_in_seconds": 280000}}
+
+Environment:
+    MQTT_HOST            broker hostname (required)
+    MQTT_PORT            default 8883
+    MQTT_USER, MQTT_PASS broker credentials
+    MQTT_PREFIX          topic prefix, default "rpi" (must match the display)
+    MQTT_TLS             default "true" (insecure verify, like the display)
+    POLL_SECONDS         default 600; the endpoint rate-limits aggressive
+                         polling (HTTP 429), so stay at 10 min or above
+    CLAUDE_OAUTH_TOKEN   optional token override (e.g. from `claude setup-token`)
+    CLAUDE_CREDENTIALS   default ~/.claude/.credentials.json
+
+Dependency: paho-mqtt>=2.0
 """
+
 import json
+import logging
 import os
 import ssl
-import subprocess
 import sys
 import time
+import urllib.error
+import urllib.request
 from datetime import datetime, timezone
+from pathlib import Path
 
-import paho.mqtt.client as mqtt
+from paho.mqtt import publish
 
+USAGE_URL = "https://api.anthropic.com/api/oauth/usage"
 
-def env(name, default=None):
-    v = os.environ.get(name)
-    return v if v not in (None, "") else default
+MQTT_HOST = os.environ.get("MQTT_HOST", "")
+MQTT_PORT = int(os.environ.get("MQTT_PORT", "8883"))
+MQTT_USER = os.environ.get("MQTT_USER")
+MQTT_PASS = os.environ.get("MQTT_PASS")
+MQTT_PREFIX = os.environ.get("MQTT_PREFIX", "rpi")
+MQTT_TLS = os.environ.get("MQTT_TLS", "true").lower() != "false"
+POLL_SECONDS = int(os.environ.get("POLL_SECONDS", "600"))
+CREDENTIALS = Path(os.environ.get(
+    "CLAUDE_CREDENTIALS", Path.home() / ".claude" / ".credentials.json"))
 
-
-MQTT_HOST = env("MQTT_HOST")
-MQTT_PORT = int(env("MQTT_PORT", "8883"))
-MQTT_USER = env("MQTT_USER")
-MQTT_PASS = env("MQTT_PASS")
-MQTT_PREFIX = env("MQTT_PREFIX", "rpi")
-MQTT_TLS = str(env("MQTT_TLS", "true")).lower() in ("1", "true", "yes")
-POLL_SECONDS = int(env("POLL_SECONDS", "300"))
-FIVE_HOUR_LIMIT = float(env("FIVE_HOUR_LIMIT", "0") or 0)
-WEEKLY_LIMIT = float(env("WEEKLY_LIMIT", "0") or 0)
-# Override if ccusage is installed differently, e.g. CCUSAGE_CMD="ccusage".
-CCUSAGE_CMD = env("CCUSAGE_CMD", "npx -y ccusage@latest")
-
-TOPIC = f"{MQTT_PREFIX}/claude/usage"
+log = logging.getLogger("usage-publisher")
 
 
-def run_ccusage(args):
-    cmd = CCUSAGE_CMD.split() + args
-    out = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
-    if out.returncode != 0:
-        raise RuntimeError(f"ccusage failed ({' '.join(cmd)}): {out.stderr.strip()}")
-    return json.loads(out.stdout)
+def oauth_token() -> str:
+    token = os.environ.get("CLAUDE_OAUTH_TOKEN")
+    if token:
+        return token
+    # Re-read on every poll: Claude Code rotates the access token whenever
+    # it runs on this machine.
+    data = json.loads(CREDENTIALS.read_text())
+    return data["claudeAiOauth"]["accessToken"]
 
 
-def parse_iso(s):
-    if not s:
-        return None
-    try:
-        return datetime.fromisoformat(str(s).replace("Z", "+00:00"))
-    except ValueError:
-        return None
+def fetch_usage(token: str) -> dict:
+    req = urllib.request.Request(USAGE_URL, headers={
+        "Authorization": f"Bearer {token}",
+        "anthropic-beta": "oauth-2025-04-20",
+        "User-Agent": "rpi-sentinel-usage-publisher",
+    })
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        return json.load(resp)
 
 
-def entry_tokens(entry):
-    """Total tokens for a ccusage block / daily entry, robust to schema changes."""
-    if entry.get("totalTokens") is not None:
-        return float(entry["totalTokens"])
-    counts = entry.get("tokenCounts") or {}
-    return float(sum(v for v in counts.values() if isinstance(v, (int, float))))
+def window(src: dict) -> dict:
+    """Map one endpoint window ({utilization, resets_at}) to the display
+    contract ({percent, resets_in_seconds})."""
+    out = {}
+    if not src:
+        return out
+    if src.get("utilization") is not None:
+        out["percent"] = round(src["utilization"])
+    resets_at = src.get("resets_at")
+    if resets_at:
+        dt = datetime.fromisoformat(resets_at)
+        secs = int((dt - datetime.now(timezone.utc)).total_seconds())
+        if secs > 0:
+            out["resets_in_seconds"] = secs
+    return out
 
 
-def five_hour_window():
-    """(used_tokens, resets_in_seconds | None) for the active 5h block."""
-    data = run_ccusage(["blocks", "--json"])
-    blocks = data.get("blocks", data if isinstance(data, list) else [])
-    active = next((b for b in blocks if b.get("isActive") and not b.get("isGap")), None)
-    if not active:
-        return 0.0, None
-
-    used = entry_tokens(active)
-    end = parse_iso(active.get("endTime"))
-    if end is None:
-        start = parse_iso(active.get("startTime"))
-        if start is not None:
-            end = datetime.fromtimestamp(start.timestamp() + 5 * 3600, tz=timezone.utc)
-    resets_in = None
-    if end is not None:
-        resets_in = max(0, int((end - datetime.now(timezone.utc)).total_seconds()))
-    return used, resets_in
+def build_payload(usage: dict) -> dict:
+    payload = {}
+    for src_key, dst_key in (("five_hour", "five_hour"), ("seven_day", "weekly")):
+        w = window(usage.get(src_key))
+        if w:
+            payload[dst_key] = w
+    return payload
 
 
-def weekly_window():
-    """(used_tokens, None) summed over the last 7 daily entries.
-
-    The subscription weekly window is a rolling reset that ccusage does not
-    expose directly, so we report consumption only and leave the countdown off.
-    """
-    data = run_ccusage(["daily", "--json"])
-    days = data.get("daily", data if isinstance(data, list) else [])
-    last7 = days[-7:]
-    used = float(sum(entry_tokens(d) for d in last7))
-    return used, None
-
-
-def make_window(used, limit, resets_in):
-    w = {"used": round(used), "limit": round(limit)}
-    if limit and limit > 0:
-        w["percent"] = max(0, min(100, round(100.0 * used / limit)))
-    if resets_in is not None:
-        w["resets_in_seconds"] = resets_in
-    return w
+def publish_payload(payload: dict) -> None:
+    auth = {"username": MQTT_USER, "password": MQTT_PASS} if MQTT_USER else None
+    tls = {"cert_reqs": ssl.CERT_NONE} if MQTT_TLS else None
+    publish.single(
+        f"{MQTT_PREFIX}/claude/usage",
+        json.dumps(payload),
+        qos=1,
+        retain=True,
+        hostname=MQTT_HOST,
+        port=MQTT_PORT,
+        auth=auth,
+        tls=tls,
+    )
 
 
-def build_payload():
-    fh_used, fh_reset = five_hour_window()
-    wk_used, wk_reset = weekly_window()
-    return {
-        "five_hour": make_window(fh_used, FIVE_HOUR_LIMIT, fh_reset),
-        "weekly": make_window(wk_used, WEEKLY_LIMIT, wk_reset),
-    }
-
-
-def make_client():
-    client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2,
-                         client_id=f"claude-usage-{os.getpid()}")
-    if MQTT_USER:
-        client.username_pw_set(MQTT_USER, MQTT_PASS or "")
-    if MQTT_TLS:
-        # Matches the display's WiFiClientSecure.setInsecure(); pin the CA later.
-        client.tls_set(cert_reqs=ssl.CERT_NONE)
-        client.tls_insecure_set(True)
-    return client
-
-
-def main():
+def main() -> int:
+    logging.basicConfig(level=logging.INFO,
+                        format="%(asctime)s %(levelname)s %(message)s")
     if not MQTT_HOST:
-        print("MQTT_HOST is required", file=sys.stderr)
-        sys.exit(1)
+        log.error("MQTT_HOST is required")
+        return 1
 
-    client = make_client()
-    client.connect(MQTT_HOST, MQTT_PORT, keepalive=60)
-    client.loop_start()
-    print(f"connected to {MQTT_HOST}:{MQTT_PORT}, publishing to {TOPIC} every {POLL_SECONDS}s",
-          flush=True)
-    try:
-        while True:
-            try:
-                payload = build_payload()
-                client.publish(TOPIC, json.dumps(payload), qos=1, retain=True)
-                print(f"published {TOPIC}: {payload}", flush=True)
-            except Exception as exc:  # keep the loop alive on transient ccusage/MQTT errors
-                print(f"error: {exc}", file=sys.stderr, flush=True)
-            time.sleep(POLL_SECONDS)
-    finally:
-        client.loop_stop()
-        client.disconnect()
+    interval = POLL_SECONDS
+    while True:
+        try:
+            usage = fetch_usage(oauth_token())
+            payload = build_payload(usage)
+            if payload:
+                publish_payload(payload)
+                log.info("published %s", json.dumps(payload))
+            else:
+                log.warning("usage response had no five_hour/seven_day windows")
+            interval = POLL_SECONDS
+        except urllib.error.HTTPError as e:
+            if e.code == 429:
+                interval = min(interval * 2, 3600)
+                log.warning("rate-limited (429); next poll in %ds", interval)
+            elif e.code == 401:
+                log.warning("token rejected (401) -- expired? Run claude once on "
+                            "this machine to refresh it, or set CLAUDE_OAUTH_TOKEN "
+                            "from `claude setup-token`")
+            else:
+                log.warning("usage endpoint HTTP %d: %s", e.code, e.reason)
+        except Exception as e:
+            log.warning("poll failed: %s", e)
+        time.sleep(interval)
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
