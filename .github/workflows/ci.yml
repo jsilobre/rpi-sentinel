@@ -32,3 +32,18 @@ jobs:
 
       - name: Test
         run: ctest --test-dir build --output-on-failure --parallel 4
+
+  dashboard:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Test dashboard (syntax + pure helpers, no npm deps)
+        run: node --test dashboard/tests/*.test.mjs

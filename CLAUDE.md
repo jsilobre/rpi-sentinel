@@ -160,6 +160,12 @@ Sensor `type` values: `simulated`, `ds18b20`, `dht11`, `cpu_temp`, `sgp30`. DS18
 
 ## CI
 
-GitHub Actions (`.github/workflows/ci.yml`) runs on every push and PR: installs GCC 14 + Ninja, configures with `BUILD_TESTING=ON`, builds, then runs `ctest --output-on-failure --parallel 4`.
+GitHub Actions (`.github/workflows/ci.yml`) runs on every push and PR. The `build-and-test` job installs GCC 14 + Ninja, configures with `BUILD_TESTING=ON`, builds, then runs `ctest --output-on-failure --parallel 4`. A separate `dashboard` job runs the front-end tests on Node (no npm install needed):
+
+```bash
+node --test dashboard/tests/*.test.mjs
+```
+
+These cover the dashboard JS statically (every file parses, the concatenated bundle has no duplicate global declarations, and `index.html` keeps the deploy placeholders) and behaviourally (pure helpers like `escapeHtml`, `fmt`, `unitFor`, `gridColumns` are executed in a small `vm` sandbox that mirrors the page's shared classic-script scope). Add cases to `dashboard/tests/dashboard.test.mjs`.
 
 `deploy-dashboard.yml` deploys `dashboard/` to GitHub Pages on pushes to `main` that touch `dashboard/**`, injecting credentials from GitHub Secrets by replacing `__MQTT_BROKER_WSS__`, `__MQTT_USER__`, `__MQTT_PASS__`, and `__CLOUD_WORKER_URL__` placeholders in `dashboard/index.html`.
