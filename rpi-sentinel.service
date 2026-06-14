@@ -1,0 +1,17 @@
+[Unit]
+Description=rpi-sentinel environmental sensor monitoring daemon
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=jeremy
+WorkingDirectory=/home/jeremy/rpi-sentinel
+# Secrets (CLOUD_API_KEY, etc.) live outside the repo so they are never committed.
+EnvironmentFile=/home/jeremy/rpi-sentinel.env
+ExecStart=/home/jeremy/rpi-sentinel/build/rpi-sentinel /home/jeremy/rpi-sentinel/config.json
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
