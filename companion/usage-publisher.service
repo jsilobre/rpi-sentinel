@@ -8,13 +8,20 @@ Type=simple
 # Adjust the user and paths to your Raspberry Pi / this repo's checkout.
 User=pi
 WorkingDirectory=/home/pi/rpi-sentinel/companion
-Environment=MQTT_HOST=your-broker.example.com
+# Secrets (MQTT_HOST, MQTT_USER, MQTT_PASS) live outside the repo so they are
+# never committed. Create this file with 600 perms, e.g.:
+#   MQTT_HOST=your-broker.example.com
+#   MQTT_USER=youruser
+#   MQTT_PASS=yourpass
+EnvironmentFile=/home/pi/usage-publisher.env
 Environment=MQTT_PORT=8883
-Environment=MQTT_USER=youruser
-Environment=MQTT_PASS=yourpass
 Environment=MQTT_PREFIX=rpi
 Environment=MQTT_TLS=true
 Environment=POLL_SECONDS=600
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+# Optional caps so the display shows a percentage instead of raw tokens:
+# Environment=FIVE_HOUR_LIMIT=800000
+# Environment=WEEKLY_LIMIT=200000000
 # Token is read from ~/.claude/.credentials.json of the User above. If this
 # machine never runs `claude`, use a long-lived token from `claude setup-token`:
 # Environment=CLAUDE_OAUTH_TOKEN=...
