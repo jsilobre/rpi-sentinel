@@ -287,8 +287,8 @@ function fmt(isoOrMs) {
       : {month:'short', day:'numeric'});
   if (currentWindow === '24h' || currentWindow === '7d')
     return d.toLocaleDateString('en', {month:'short', day:'numeric'}) + ' ' +
-           d.toLocaleTimeString('en', {hour:'2-digit', minute:'2-digit'});
-  return d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', second:'2-digit'});
+           d.toLocaleTimeString('en', {hour:'2-digit', minute:'2-digit', hour12: false});
+  return d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', second:'2-digit', hour12: false});
 }
 
 function updateAnnotations(sensorId) {
@@ -737,7 +737,7 @@ function handleReading(sensorId, data) {
   }
 
   updateStats(sensorId);
-  document.getElementById('updated').textContent = 'Updated ' + new Date().toLocaleTimeString();
+  document.getElementById('updated').textContent = 'Updated ' + new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', second:'2-digit', hour12: false});
 }
 
 function handleAlert(sensorId, data) {
