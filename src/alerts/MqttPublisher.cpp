@@ -12,8 +12,13 @@
 #include <print>
 #include <stdexcept>
 #include <thread>
+#include <vector>
 
 namespace rpi {
+
+namespace {
+constexpr std::size_t MQTT_QUEUE_CAPACITY = 1000;
+} // namespace
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -144,6 +149,7 @@ void MqttPublisher::connect()
     cmd_clear_topic_      = config_.topic_prefix + "/cmd/clear";
 
     mosquitto_loop_start(mosq_);
+    pub_worker_ = std::jthread{[this](std::stop_token st) { run_publisher(std::move(st)); }};
     std::println("[MqttPublisher] Connecting to {}:{}…", addr.host, addr.port);
 }
 
@@ -158,6 +164,11 @@ void MqttPublisher::disconnect()
         std::this_thread::sleep_for(std::chrono::milliseconds{500});
         mosquitto_disconnect(mosq_);                // send MQTT DISCONNECT packet
         std::this_thread::sleep_for(std::chrono::milliseconds{200}); // let loop flush it
+        // Stop the publisher thread before stopping the mosquitto loop so the
+        // worker no longer calls mosquitto_publish() when the loop is gone.
+        pub_worker_.request_stop();
+        pub_cv_.notify_all();
+        pub_worker_.join();
         mosquitto_loop_stop(mosq_, /*force=*/true); // safe to force-stop now
         std::println("[MqttPublisher] Disconnected");
     }
@@ -378,7 +389,44 @@ void MqttPublisher::on_event(const SensorEvent& event)
             type_str, event.value, event.threshold, event.metric, ts);
     }
 
-    publish(topic, payload, retain);
+    enqueue_publish(std::move(topic), std::move(payload), retain);
+}
+
+void MqttPublisher::enqueue_publish(std::string topic, std::string payload, bool retain)
+{
+    std::lock_guard lk{pub_mu_};
+    if (pub_queue_.size() >= MQTT_QUEUE_CAPACITY) {
+        pub_queue_.pop(); // drop oldest to make room
+    }
+    pub_queue_.push({std::move(topic), std::move(payload), retain});
+    pub_cv_.notify_one();
+}
+
+void MqttPublisher::run_publisher(std::stop_token stop)
+{
+    while (!stop.stop_requested()) {
+        std::vector<PublishItem> batch;
+
+        {
+            std::unique_lock lk{pub_mu_};
+            pub_cv_.wait(lk, stop, [&]{ return !pub_queue_.empty(); });
+            while (!pub_queue_.empty()) {
+                batch.push_back(std::move(pub_queue_.front()));
+                pub_queue_.pop();
+            }
+        }
+
+        for (const auto& item : batch) {
+            int rc = mosquitto_publish(mosq_,
+                /*mid=*/nullptr, item.topic.c_str(),
+                static_cast<int>(item.payload.size()), item.payload.c_str(),
+                /*qos=*/1, item.retain);
+            if (rc != MOSQ_ERR_SUCCESS) {
+                std::println(stderr, "[MqttPublisher] Publish to '{}' failed: {}",
+                    item.topic, mosquitto_strerror(rc));
+            }
+        }
+    }
 }
 
 void MqttPublisher::publish(const std::string& topic, const std::string& payload, bool retain)

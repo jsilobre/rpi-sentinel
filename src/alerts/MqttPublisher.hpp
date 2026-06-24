@@ -4,10 +4,14 @@
 
 #include "IAlertHandler.hpp"
 #include "../monitoring/Config.hpp"
+#include <condition_variable>
 #include <expected>
 #include <functional>
 #include <memory>
+#include <mutex>
+#include <queue>
 #include <string>
+#include <thread>
 
 struct mosquitto;
 struct mosquitto_message;
@@ -49,6 +53,14 @@ private:
     void handle_message(const struct mosquitto_message* msg);
     void handle_history_request(const std::string& payload);
     void publish(const std::string& topic, const std::string& payload, bool retain);
+    void enqueue_publish(std::string topic, std::string payload, bool retain);
+    void run_publisher(std::stop_token stop);
+
+    struct PublishItem {
+        std::string topic;
+        std::string payload;
+        bool        retain;
+    };
 
     MqttConfig                    config_;
     mosquitto*                    mosq_ = nullptr;
@@ -63,6 +75,11 @@ private:
     std::string                   history_resp_prefix_;
     std::string                   cmd_refresh_topic_;
     std::string                   cmd_clear_topic_;
+
+    std::queue<PublishItem>       pub_queue_;
+    std::mutex                    pub_mu_;
+    std::condition_variable_any   pub_cv_;
+    std::jthread                  pub_worker_;
 };
 
 } // namespace rpi
