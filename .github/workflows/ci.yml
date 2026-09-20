@@ -33,6 +33,53 @@ jobs:
       - name: Test
         run: ctest --test-dir build --output-on-failure --parallel 4
 
+  # The job above always builds with every optional dependency present, so the
+  # ENABLE_*=OFF preprocessor paths were never compiled — an unused variable
+  # under #ifdef ENABLE_MQTT could break that build without CI noticing.
+  # This matrix covers the remaining combinations (ON/ON is covered above).
+  feature-flag-matrix:
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - mqtt: "OFF"
+            cloud: "OFF"
+          - mqtt: "ON"
+            cloud: "OFF"
+          - mqtt: "OFF"
+            cloud: "ON"
+
+    name: build (MQTT=${{ matrix.mqtt }}, CLOUD_STORAGE=${{ matrix.cloud }})
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install GCC 14
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y g++-14 cmake ninja-build libmosquitto-dev libsqlite3-dev libcurl4-openssl-dev
+
+      # The dev libraries stay installed on purpose: this exercises the
+      # explicit -DENABLE_*=OFF flags rather than mere absence of the library.
+      - name: Configure
+        run: |
+          cmake -B build \
+            -G Ninja \
+            -DCMAKE_CXX_COMPILER=g++-14 \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_TESTING=ON \
+            -DENABLE_MQTT=${{ matrix.mqtt }} \
+            -DENABLE_CLOUD_STORAGE=${{ matrix.cloud }}
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure --parallel 4
+
   dashboard:
     runs-on: ubuntu-latest
 

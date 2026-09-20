@@ -123,11 +123,13 @@ int main(int argc, char* argv[])
 
     rpi::MonitoringHub hub(bus, std::move(*result));
 
-    auto on_config_change = [&hub, &config_path
 #ifdef ENABLE_MQTT
-        , &mqtt_pub
-#endif
-    ](const std::string& sensor_id, float warn, float crit)
+    // MQTT is the only consumer: since the local web API was removed, the
+    // threshold callback is the daemon's sole runtime-reconfiguration entry
+    // point. Defining it unconditionally trips -Werror=unused-but-set-variable
+    // on an ENABLE_MQTT=OFF build.
+    auto on_config_change = [&hub, &config_path, &mqtt_pub](
+        const std::string& sensor_id, float warn, float crit)
         -> std::expected<void, std::string>
     {
         hub.update_thresholds(sensor_id, warn, crit);
@@ -135,13 +137,10 @@ int main(int argc, char* argv[])
             std::println(stderr, "[main] save_config failed: {}", r.error());
             return r;
         }
-#ifdef ENABLE_MQTT
         if (mqtt_pub) mqtt_pub->publish_config(hub.build_config_json());
-#endif
         return {};
     };
 
-#ifdef ENABLE_MQTT
     if (mqtt_pub) {
         mqtt_pub->set_threshold_callback(on_config_change);
         mqtt_pub->set_force_poller([&hub]() { hub.force_poll_all(); });
