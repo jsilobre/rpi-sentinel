@@ -148,6 +148,78 @@ CREATE TABLE IF NOT EXISTS readings_hourly (
 > empty (and the long windows show nothing) until the first cron tick fires after a
 > deploy that includes the trigger.
 
+> **Existing databases must re-run the schema.** `idx_readings_ts` was added
+> after the initial release. Without it the hourly rollup degrades to a full
+> table scan (see [Staying inside the D1 free tier](#staying-inside-the-d1-free-tier)).
+> Re-running `schema.sql` is idempotent and creates it in place:
+>
+> ```bash
+> npx wrangler d1 execute rpi-sentinel-db --remote --file=worker/schema.sql
+> ```
+>
+> Creating the index on a large table is a one-off cost proportional to the
+> table size; it does not need a Worker redeploy.
+
+---
+
+## Staying inside the D1 free tier
+
+The Workers Free plan allows **5,000,000 rows read** and **100,000 rows
+written** per day, per account. Both counters include index rows.
+
+### What reads rows
+
+| Source | Rows read | When |
+|---|---|---|
+| Hourly rollup cron | rows in the trailing `ROLLUP_LOOKBACK_MS` (3 h) | 24×/day, always |
+| `GET /history`, `1h`–`7d` | **every raw row in the window**, per sensor | each dashboard load / window switch |
+| `GET /history`, `30d`–`1y` | ~720 rollup rows per sensor | each dashboard load |
+| `GET /export` | the entire `readings` table | each CSV download |
+
+The `1h`–`7d` windows down-sample with `NTILE`, which still has to read the
+whole window to compute the buckets — the point cap limits what is *returned*,
+not what is *read*. A 7-day window over 9 sensors at a 2 s poll interval is
+roughly 2.7 M rows read for a single dashboard load, so leaving the dashboard
+parked on `7d` is the most expensive thing you can do. Prefer `30d`+ (rollup-
+backed) for browsing, and use `1h`/`6h` for live work.
+
+### Why the index matters
+
+`idx_readings` leads with `sensor_id`, so the rollup's `WHERE ts >= ?` cannot
+seek on it. Without `idx_readings_ts`, `EXPLAIN QUERY PLAN` reports:
+
+```
+SCAN readings USING INDEX idx_readings          ← every row, 24×/day
+```
+
+With it:
+
+```
+SEARCH readings USING COVERING INDEX idx_readings_ts (ts>?)
+```
+
+A full scan 24 times a day exhausts the 5 M budget on its own once the table
+passes ~210 k rows — with no dashboard usage at all.
+
+### Watching the write budget
+
+Each INSERT also writes one row per index, so `idx_readings_ts` raises the
+per-reading write cost. Total writes per day are roughly:
+
+```
+sensors × (86400 / poll_interval_seconds) × (1 + number_of_indexes)
+```
+
+If that approaches 100 k/day, raise `poll_interval_ms` in `config.json` — the
+local SQLite history keeps full resolution regardless, so only the cloud
+archive's granularity changes.
+
+### If you are already blocked
+
+Reads are blocked until the daily reset (00:00 UTC); stored data is unaffected.
+Apply the index, then either wait for the reset or upgrade to the Workers Paid
+plan ($5/month minimum, 25 billion rows read).
+
 ---
 
 ## 3. Set the API key (runtime secret)

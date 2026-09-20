@@ -26,7 +26,12 @@ const HOUR_MS = 3_600_000;
 
 // Cron self-heals up to this many trailing hours on every tick, so a missed
 // run (or late-arriving readings for the current partial hour) is corrected.
-const ROLLUP_LOOKBACK_MS = 6 * HOUR_MS;
+//
+// Every tick re-reads this whole span, so the window is also a direct
+// multiplier on D1 rows read: 24 ticks/day x (rows in the span). Three hours
+// still covers the just-closed hour, the current partial one, and one missed
+// tick, at half the read cost of the previous six.
+const ROLLUP_LOOKBACK_MS = 3 * HOUR_MS;
 
 const CORS: HeadersInit = {
   'Access-Control-Allow-Origin':  '*',
