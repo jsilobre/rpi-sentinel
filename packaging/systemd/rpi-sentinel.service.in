@@ -1,0 +1,81 @@
+[Unit]
+Description=rpi-sentinel environmental sensor monitoring daemon
+Documentation=https://github.com/jsilobre/rpi-sentinel
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=simple
+ExecStart=@CMAKE_INSTALL_FULL_BINDIR@/rpi-sentinel @CMAKE_INSTALL_FULL_SYSCONFDIR@/rpi-sentinel/config.json
+
+# Secrets (GRAFANA_CLOUD_OTLP_AUTH, CLOUD_API_KEY, ...) live outside the repo
+# so they are never committed. The leading '-' makes the file optional; create
+# it with mode 0600 as KEY=VALUE lines, e.g.:
+#   GRAFANA_CLOUD_OTLP_AUTH=Basic <base64>
+#   CLOUD_API_KEY=<worker-api-key>
+EnvironmentFile=-@CMAKE_INSTALL_FULL_SYSCONFDIR@/rpi-sentinel/secrets.env
+
+Restart=on-failure
+RestartSec=10
+
+# Static system user — see docs/build-guide.md for the one-time useradd.
+# A fixed UID (rather than DynamicUser=) is required because the daemon owns
+# persistent state across restarts: the SQLite history in StateDirectory, and
+# config.json, which it rewrites when a threshold is changed from the cloud
+# dashboard (see ReadWritePaths below).
+User=rpi-sentinel
+Group=rpi-sentinel
+
+# Creates /var/lib/rpi-sentinel owned by the user above. Point
+# history.db_path at it, or leave the relative default (data/history.db) —
+# WorkingDirectory is the state directory.
+StateDirectory=rpi-sentinel
+StateDirectoryMode=0750
+WorkingDirectory=%S/rpi-sentinel
+
+# Sandbox.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+
+# ProtectSystem=strict makes /etc read-only, but the daemon rewrites
+# config.json on a threshold change pushed from the dashboard (save_config
+# writes a .tmp sibling then renames, so the directory itself must be
+# writable). Drop this line if you never change thresholds at runtime.
+ReadWritePaths=@CMAKE_INSTALL_FULL_SYSCONFDIR@/rpi-sentinel
+
+# Keep the SQLite history and any rewritten config from being world-readable.
+UMask=0077
+
+LimitNOFILE=4096
+
+# ── Hardware access ──────────────────────────────────────────────────────────
+# The DS18B20, DHT11, SGP30 and cpu_temp readers only read from sysfs and work
+# as-is. GpioAlert additionally WRITES to /sys/class/gpio/{export,gpioN/value},
+# which needs two relaxations — add them via `systemctl edit rpi-sentinel`:
+#   [Service]
+#   SupplementaryGroups=gpio     # /sys/class/gpio is root:gpio 0660 on RPi OS
+#   ProtectKernelTunables=no     # this also remounts parts of /sys read-only
+# gpio_alert is disabled by default, so the stock unit leaves both hardened.
+
+[Install]
+WantedBy=multi-user.target

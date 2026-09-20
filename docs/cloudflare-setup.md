@@ -210,12 +210,18 @@ export CLOUD_API_KEY="<same-value-you-set-in-Cloudflare>"
 ./rpi-sentinel
 ```
 
-For a persistent setup (systemd service), add to the service unit:
+For a persistent setup, the shipped systemd unit reads an optional
+`secrets.env` next to `config.json` (create it mode 0600 so the key is not
+world-readable):
 
 ```ini
-[Service]
-Environment=CLOUD_API_KEY=<value>
+# /usr/local/etc/rpi-sentinel/secrets.env
+CLOUD_API_KEY=<same-value-you-set-in-Cloudflare>
 ```
+
+See [build-guide.md](build-guide.md) for the full service setup. Prefer this
+over `Environment=CLOUD_API_KEY=...` inline in the unit — unit files are
+world-readable.
 
 ### Build requirement
 

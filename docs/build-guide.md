@@ -172,6 +172,12 @@ By default this installs:
 |---|---|
 | `<prefix>/bin/rpi-sentinel` | the built executable |
 | `<prefix>/etc/rpi-sentinel/config.json` | repo's `config.example.json` (renamed) |
+| `<prefix>/lib/systemd/system/rpi-sentinel.service` | systemd unit (see below) |
+
+Disable the unit install with `-DRPI_SENTINEL_INSTALL_SYSTEMD_UNIT=OFF`, or
+override its destination with
+`-DRPI_SENTINEL_SYSTEMD_UNITDIR=/lib/systemd/system` (the path most distros
+expect for system-wide units).
 
 ### Option B — Cross-compilation (PC → ARM64)
 
@@ -206,6 +212,84 @@ cmake -B build-arm ... -DRPI_SENTINEL_INSTALL_CONFIG=$PWD/prod.json
 # Skip installing any config file (binary only)
 cmake -B build-arm ... -DRPI_SENTINEL_INSTALL_CONFIG=""
 ```
+
+### Running as a systemd service
+
+The unit is generated from `packaging/systemd/rpi-sentinel.service.in` at CMake
+configure time (paths substituted from `CMAKE_INSTALL_FULL_BINDIR` /
+`CMAKE_INSTALL_FULL_SYSCONFDIR`) and installed by `cmake --install`.
+
+**One-time setup.** The unit runs as a dedicated system user, which must exist
+before the first start:
+
+```bash
+sudo useradd --system --no-create-home --shell /usr/sbin/nologin rpi-sentinel
+
+# The daemon rewrites config.json when a threshold is changed from the
+# dashboard, so it needs to own its config directory:
+sudo chown -R rpi-sentinel:rpi-sentinel /usr/local/etc/rpi-sentinel
+```
+
+A fixed UID is used rather than `DynamicUser=` because the daemon owns state
+that must survive restarts — the SQLite history and `config.json`.
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now rpi-sentinel.service
+
+sudo journalctl -u rpi-sentinel.service -f   # follow logs
+systemctl status rpi-sentinel.service
+```
+
+**State directory.** `StateDirectory=rpi-sentinel` creates
+`/var/lib/rpi-sentinel` owned by the service user, and `WorkingDirectory`
+points at it — so the default relative `history.db_path` (`data/history.db`)
+lands there. Use an absolute path in `config.json` to override.
+
+**Secrets.** The unit optionally loads
+`/usr/local/etc/rpi-sentinel/secrets.env` (create it mode 0600):
+
+```ini
+GRAFANA_CLOUD_OTLP_AUTH=Basic <base64>
+CLOUD_API_KEY=<worker-api-key>
+```
+
+This replaces `Environment=CLOUD_API_KEY=...` inline in the unit — see
+[cloudflare-setup.md](cloudflare-setup.md) and [observability.md](observability.md).
+
+**Sandboxing.** The unit ships with `ProtectSystem=strict`, `NoNewPrivileges`,
+`PrivateTmp`, `MemoryDenyWriteExecute`, a `@system-service` syscall filter and
+`RestrictAddressFamilies` limited to UNIX/INET/INET6. Two consequences worth
+knowing:
+
+- `/etc/rpi-sentinel` is explicitly re-opened via `ReadWritePaths=` so runtime
+  threshold changes can be persisted. Drop that line if you never change
+  thresholds from the dashboard.
+- `gpio_alert` needs two relaxations, because it *writes* to
+  `/sys/class/gpio/` (all other sensor readers only read from sysfs):
+
+  ```bash
+  sudo systemctl edit rpi-sentinel.service
+  ```
+  ```ini
+  [Service]
+  SupplementaryGroups=gpio     # /sys/class/gpio is root:gpio 0660 on RPi OS
+  ProtectKernelTunables=no     # also remounts parts of /sys read-only
+  ```
+  `gpio_alert` is disabled by default, so the stock unit stays fully hardened.
+
+**Validation.** `systemd-analyze verify <prefix>/lib/systemd/system/rpi-sentinel.service`
+should exit cleanly.
+
+> **Migrating from the old unit.** Earlier revisions shipped a
+> `rpi-sentinel.service` at the repo root with hardcoded `/home/jeremy` paths,
+> running the binary straight out of `build/`. It has been replaced by this
+> installable template. An existing deployment that *copied* that file into
+> `/etc/systemd/system/` is unaffected until you overwrite it; to switch, run
+> the install above and `sudo rm /etc/systemd/system/rpi-sentinel.service`
+> (units in `/etc` take precedence over `<prefix>/lib`).
+
+---
 
 ### Enabling the 1-Wire bus on RPi 5
 
