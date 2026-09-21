@@ -22,6 +22,21 @@ if(RPI_SENTINEL_INSTALL_CONFIG)
             RENAME config.json)
 endif()
 
+option(RPI_SENTINEL_INSTALL_SYSTEMD_UNIT
+    "Install the rpi-sentinel.service systemd unit." ON)
+set(RPI_SENTINEL_SYSTEMD_UNITDIR "${CMAKE_INSTALL_PREFIX}/lib/systemd/system"
+    CACHE PATH
+    "Directory where rpi-sentinel.service is installed (override for distro packaging, e.g. /lib/systemd/system).")
+
+if(RPI_SENTINEL_INSTALL_SYSTEMD_UNIT)
+    configure_file(
+        "${CMAKE_CURRENT_SOURCE_DIR}/packaging/systemd/rpi-sentinel.service.in"
+        "${CMAKE_CURRENT_BINARY_DIR}/rpi-sentinel.service"
+        @ONLY)
+    install(FILES "${CMAKE_CURRENT_BINARY_DIR}/rpi-sentinel.service"
+            DESTINATION "${RPI_SENTINEL_SYSTEMD_UNITDIR}")
+endif()
+
 option(BUILD_TESTING "Build unit tests" ON)
 
 add_subdirectory(src)
