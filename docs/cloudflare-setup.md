@@ -61,7 +61,7 @@ is ~6.3 M rows per sensor), so they are served **down-sampled** from the
 
 Each down-sampled point carries an **average plus a min/max band** so short spikes
 (e.g. threshold breaches) are preserved rather than smoothed away. The hourly cron
-re-aggregates a trailing 6 h of raw readings on every run, so a missed tick or a
+re-aggregates a trailing 3 h of raw readings on every run, so a missed tick or a
 late-arriving reading self-corrects (upsert keyed on `sensor_id, hour_ts`).
 
 These long windows are **Cloudflare-only** — there is no MQTT equivalent; the
