@@ -10,5 +10,25 @@ database_id   = "2c0a43bb-a601-466a-b738-4ec30cecb096"
 
 # Hourly rollup: aggregates raw readings into readings_hourly so the
 # 1mo / 6mo / 1y dashboard windows query pre-aggregated data.
+#
+# ┌── TEMPORARILY DISABLED ─────────────────────────────────────────────────┐
+# │ Until idx_readings_ts exists on the PRODUCTION database, the rollup's   │
+# │ `WHERE ts >= ?` full-scans `readings` every hour. Measured on           │
+# │ rpi-sentinel-db: 26 read queries consumed 9M rows/day — ~350k rows per  │
+# │ cron tick — against a 5M/day free-tier budget.                          │
+# │                                                                         │
+# │ Deleting the trigger in the Cloudflare dashboard is NOT enough: any     │
+# │ `wrangler deploy` re-registers whatever this file declares. An explicit │
+# │ empty list is what makes a redeploy keep it off.                        │
+# │                                                                         │
+# │ RE-ENABLE once the index is confirmed present:                          │
+# │   SELECT name FROM sqlite_master                                        │
+# │    WHERE type='index' AND tbl_name='readings';   -- expect idx_readings_ts
+# │ then restore: crons = ["0 * * * *"]                                     │
+# │                                                                         │
+# │ While disabled, readings_hourly stops being updated, so the dashboard's │
+# │ 1mo / 6mo / 1y windows go stale. Raw ingest and the 1h–7d windows are   │
+# │ unaffected. See docs/cloudflare-setup.md.                               │
+# └─────────────────────────────────────────────────────────────────────────┘
 [triggers]
-crons = ["0 * * * *"]
+crons = []
