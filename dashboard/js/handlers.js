@@ -21,9 +21,11 @@ function handleReading(sensorId, data) {
     chart.data.labels           = history[sensorId].map(h => fmt(h.timestamp));
     chart.data.datasets[0].data = history[sensorId].map(h => h.value);
     chart.update('none');
-  } else if (WINDOWS[currentWindow] && WINDOWS[currentWindow].bucketMs) {
-    // Aggregated long window — the chart is a server-rendered band; a single
-    // raw live point doesn't match the bucket granularity, so don't append it.
+  } else if (aggregatedSensors.has(sensorId)) {
+    // The chart holds a server-rendered avg + min/max band; a single raw live
+    // point doesn't match the bucket granularity, so don't append it. Keyed on
+    // what was actually returned rather than on the window, because 7d is
+    // banded on the Cloudflare path but raw over MQTT.
   } else {
     // In a historical window, append the live point so the chart keeps progressing.
     const ts = new Date(data.timestamp).getTime();

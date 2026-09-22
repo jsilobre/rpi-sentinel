@@ -22,14 +22,17 @@ function requestSingleWindowHydration(sensorId, w) {
 
   if (CLOUD_ENABLED) {
     const params = { since_ts: sinceTs };
-    if (cfg.bucketMs) params.bucket_ms = cfg.bucketMs;
-    else              params.limit     = 500;
+    // cloudBucketMs applies only on this path — the MQTT fallback below has no
+    // rollup table to read from.
+    const bucket = cfg.bucketMs || cfg.cloudBucketMs;
+    if (bucket) params.bucket_ms = bucket;
+    else        params.limit     = 500;
     fetchCloudHistory(sensorId, params);
     return;
   }
 
-  // Long (aggregated) windows have no MQTT equivalent — Cloudflare only.
-  if (cfg.bucketMs) return;
+  // Long windows are Cloudflare-only — no MQTT equivalent.
+  if (cfg.cloudOnly) return;
 
   // Fallback: MQTT history-on-demand (RPi must be online).
   if (!client || !client.connected) return;
@@ -101,6 +104,10 @@ function applyWindowHydration(sensorId, points) {
   const fresh = clearedAt ? points.filter(p => p.ts >= clearedAt) : points;
   const chart = charts[sensorId];
   const aggregated = fresh.length > 0 && typeof fresh[0].avg === 'number';
+  // Remember what is on screen so handleReading() knows whether appending a
+  // raw live point makes sense (it does not against a bucketed band).
+  if (aggregated) aggregatedSensors.add(sensorId);
+  else            aggregatedSensors.delete(sensorId);
   chartTimestamps[sensorId]   = fresh.map(p => p.ts);
   chart.data.labels           = fresh.map(p => fmt(p.ts));
   if (aggregated) {
@@ -134,6 +141,7 @@ function setWindow(w) {
   }
 
   if (w === 'live') {
+    aggregatedSensors.clear();
     for (const sensorId of Object.keys(charts)) {
       const h     = history[sensorId] || [];
       const chart = charts[sensorId];

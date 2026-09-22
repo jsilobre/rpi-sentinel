@@ -47,17 +47,23 @@ posture as `/history`.
 
 ### Time windows & down-sampling
 
-Short windows (`1h`–`7d`) and the custom picker for spans ≤ 7 days return **raw**
-points from the `readings` table. The long windows — **1mo / 6mo / 1y** (and custom
-ranges wider than 7 days) — would be far too many raw points (a year at a 5 s poll
-is ~6.3 M rows per sensor), so they are served **down-sampled** from the
-`readings_hourly` rollup table:
+Short windows (`1h`–`24h`) and the custom picker for spans ≤ 24 h return **raw**
+points from the `readings` table. Everything wider is served **down-sampled**
+from the `readings_hourly` rollup table, because reading raw rows costs every
+row in the window — `NTILE` caps what is *returned*, not what is *scanned*:
 
 | Window | `bucket_ms` | Points | Source |
 |---|---|---|---|
+| 7d | 1 h (3 600 000) | ~168 | `readings_hourly` — **Cloudflare path only** |
 | 1mo | 1 h (3 600 000) | ~720 | `readings_hourly` |
 | 6mo | 6 h (21 600 000) | ~720 | `readings_hourly` (re-bucketed) |
 | 1y | 1 d (86 400 000) | ~365 | `readings_hourly` (re-bucketed) |
+
+`7d` is the one window where the two transports differ. On D1 a 7-day span is
+~302 000 raw rows read *per sensor* (measured at a 2 s poll), so the cloud path
+reads the rollup instead — ~168 points, an index seek on `readings_hourly`. The
+MQTT path queries the RPi's local SQLite, which has no such billing, so it
+still returns raw points there. The dashboard renders whichever shape it gets.
 
 Each down-sampled point carries an **average plus a min/max band** so short spikes
 (e.g. threshold breaches) are preserved rather than smoothed away. The hourly cron
@@ -172,16 +178,15 @@ written** per day, per account. Both counters include index rows.
 | Source | Rows read | When |
 |---|---|---|
 | Hourly rollup cron | rows in the trailing `ROLLUP_LOOKBACK_MS` (3 h) | 24×/day, always |
-| `GET /history`, `1h`–`7d` | **every raw row in the window**, per sensor | each dashboard load / window switch |
-| `GET /history`, `30d`–`1y` | ~720 rollup rows per sensor | each dashboard load |
+| `GET /history`, `1h`–`24h` | **every raw row in the window**, per sensor | each dashboard load / window switch |
+| `GET /history`, `7d`–`1y` | ~170–720 rollup rows per sensor | each dashboard load |
 | `GET /export` | the entire `readings` table | each CSV download |
 
-The `1h`–`7d` windows down-sample with `NTILE`, which still has to read the
-whole window to compute the buckets — the point cap limits what is *returned*,
-not what is *read*. A 7-day window over 9 sensors at a 2 s poll interval is
-roughly 2.7 M rows read for a single dashboard load, so leaving the dashboard
-parked on `7d` is the most expensive thing you can do. Prefer `30d`+ (rollup-
-backed) for browsing, and use `1h`/`6h` for live work.
+The raw windows down-sample with `NTILE`, which still has to read the whole
+window to compute the buckets — the point cap limits what is *returned*, not
+what is *read*. `24h` is therefore the most expensive window: roughly 43 000
+rows per sensor at a 2 s poll. Use `1h`/`6h` for live work and `7d`+ for
+browsing, which are rollup-backed and cost a few hundred rows.
 
 ### Why the index matters
 
