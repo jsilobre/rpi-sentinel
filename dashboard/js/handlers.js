@@ -13,8 +13,7 @@ function handleReading(sensorId, data) {
   const sid = domId(sensorId);
   document.getElementById('val-' + sid).textContent = data.value.toFixed(1);
 
-  const s = document.getElementById('status-' + sid);
-  if (s.textContent === '--') { s.textContent = 'OK'; s.className = 'status ok'; }
+  refreshStatus(sensorId, data.value);
 
   const chart = charts[sensorId];
   if (currentWindow === 'live') {
@@ -52,16 +51,26 @@ function handleReading(sensorId, data) {
   document.getElementById('updated').textContent = 'Updated ' + new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', second:'2-digit', hour12: false});
 }
 
-function handleAlert(sensorId, data) {
-  const sid        = domId(sensorId);
-  const isExceeded = data.type === 'EXCEEDED';
-
-  const s = document.getElementById('status-' + sid);
-  if (s) {
-    s.textContent = isExceeded ? 'Alert' : 'OK';
-    s.className   = 'status ' + (isExceeded ? 'alert' : 'ok');
+// Recompute a card's status badge from a value (defaults to the latest live
+// reading) against the current thresholds. Called on every reading and
+// whenever the thresholds change, so the badge never depends on having seen
+// the one-shot EXCEEDED/RECOVERED alert live.
+function refreshStatus(sensorId, value) {
+  const s = document.getElementById('status-' + domId(sensorId));
+  if (!s) return;
+  if (value === undefined) {
+    const h = history[sensorId];
+    if (!h || !h.length) return;
+    value = h[h.length - 1].value;
   }
+  const level = levelFor(value, sensorThresholds[sensorId], sensorLevel[sensorId], thresholdHysteresis);
+  sensorLevel[sensorId] = level;
+  s.textContent = level === 'crit' ? 'Crit' : level === 'warn' ? 'Warn' : 'OK';
+  s.className   = 'status ' + (level === 'crit' ? 'alert' : level);
+}
 
+function handleAlert(sensorId, data) {
+  // The badge is driven by readings (refreshStatus); the alert only feeds the timeline.
   events.unshift({ ...data, sensor_id: sensorId });
   if (events.length > MAX_EVENTS) events.pop();
   renderEvents();

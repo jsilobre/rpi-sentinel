@@ -88,7 +88,7 @@ std::string MonitoringHub::build_config_json() const
             {"threshold_crit", sc.threshold_crit},
         });
     }
-    return nlohmann::json{{"sensors", arr}}.dump();
+    return nlohmann::json{{"hysteresis", config_.hysteresis}, {"sensors", arr}}.dump();
 }
 
 void MonitoringHub::force_poll_all()

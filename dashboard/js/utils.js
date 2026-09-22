@@ -40,3 +40,16 @@ function hideResetZoom(sensorId) {
   const btn = document.getElementById('reset-zoom-' + domId(sensorId));
   if (btn) btn.style.display = 'none';
 }
+
+// Alert level for a reading, derived client-side so the card status is right
+// even when the dashboard was opened after the threshold was crossed (alert
+// events are one-shot and not retained on the broker). Mirrors the daemon's
+// hysteresis: once raised, a level only clears when the value drops below
+// threshold - hysteresis. `thr` is { warn, crit } or undefined.
+function levelFor(value, thr, prev, hysteresis = 0) {
+  if (!thr || !Number.isFinite(value)) return 'ok';
+  const h = Number.isFinite(hysteresis) ? hysteresis : 0;
+  if (value >= thr.crit || (prev === 'crit' && value >= thr.crit - h)) return 'crit';
+  if (value >= thr.warn || ((prev === 'warn' || prev === 'crit') && value >= thr.warn - h)) return 'warn';
+  return 'ok';
+}
