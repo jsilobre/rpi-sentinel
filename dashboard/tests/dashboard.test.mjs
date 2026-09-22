@@ -81,6 +81,7 @@ function loadHelpers() {
       domId, escapeHtml, fmt, newRequestId,
       unitFor, axisTitle, gridColumns, positionCardInGrid,
       setWindow: (w) => { currentWindow = w; },
+      WINDOWS,
     };
   `;
   const src = [CONFIG_PRELUDE, ...files.map(read), epilogue].join('\n;\n');
@@ -143,4 +144,46 @@ test('fmt formats by selected window', () => {
   H.setWindow('365d');
   const yearly = H.fmt(0);                         // long window: includes the year
   assert.match(yearly, /\d{4}/);
+});
+
+test('fmt keeps time-of-day on 7d, which is hourly-bucketed but not a long window', () => {
+  // Regression guard: 7d is served from the hourly rollup on the Cloudflare
+  // path, but its labels must stay "Jan 1 14:00" — hourly points on date-only
+  // labels would collapse 24 distinct buckets onto one indistinguishable tick.
+  H.setWindow('7d');
+  const d7 = H.fmt(0);
+  assert.match(d7, /\d{2}:\d{2}/);       // has a time component
+  assert.doesNotMatch(d7, /\d{4}/);      // but no year (that is 365d only)
+
+  H.setWindow('30d');
+  assert.doesNotMatch(H.fmt(0), /\d{2}:\d{2}/);  // genuinely long windows: date only
+});
+
+test('WINDOWS separates rollup bucketing from cloud-only and label concerns', () => {
+  const W = H.WINDOWS;
+
+  // 7d reads the hourly rollup on Cloudflare, but still has an MQTT fallback,
+  // so it must NOT be marked cloudOnly (that would hide it without the Worker).
+  assert.equal(W['7d'].cloudBucketMs, 3_600_000);
+  assert.equal(W['7d'].bucketMs, undefined);
+  assert.ok(!W['7d'].cloudOnly);
+
+  // The genuinely long windows have no MQTT equivalent and bucket on both paths.
+  for (const w of ['30d', '180d', '365d']) {
+    assert.ok(W[w].bucketMs >= 3_600_000, `${w} should bucket`);
+    assert.equal(W[w].cloudOnly, true, `${w} should be cloud-only`);
+    assert.equal(W[w].cloudBucketMs, undefined, `${w} uses bucketMs, not cloudBucketMs`);
+  }
+
+  // Short windows stay raw on both paths.
+  for (const w of ['1h', '6h', '24h']) {
+    assert.equal(W[w].bucketMs, undefined, `${w} should stay raw`);
+    assert.equal(W[w].cloudBucketMs, undefined, `${w} should stay raw`);
+  }
+
+  // Every window declares its label granularity; fmt() switches on it.
+  for (const [name, cfg] of Object.entries(W)) {
+    assert.ok(['time', 'datetime', 'date', 'date-year'].includes(cfg.labels),
+      `${name} has an unknown labels value: ${cfg.labels}`);
+  }
 });

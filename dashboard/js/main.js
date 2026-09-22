@@ -131,10 +131,14 @@ if (CLOUD_ENABLED) {
     document.querySelectorAll('.time-btn[data-w]').forEach(b => b.classList.remove('active'));
     document.getElementById('custom-apply-btn').classList.add('active');
 
-    // Ranges wider than 7d are down-sampled (banded) so the response stays
+    // Ranges wider than 24h are down-sampled (banded) so the response stays
     // small; pick a bucket (>= 1h) that keeps it to roughly 1000 points.
+    // The threshold matches the fixed windows: 7d and above read the hourly
+    // rollup, 24h and below stay raw. Keeping it at 7d here would have made a
+    // 7-day custom range cost ~300k rows read per sensor while the identical
+    // 7d button costs ~168.
     const spanMs   = toMs - fromMs;
-    const bucketMs = spanMs > WINDOWS['7d'].ms
+    const bucketMs = spanMs > WINDOWS['24h'].ms
       ? Math.max(3_600_000, Math.ceil(spanMs / 1000 / 3_600_000) * 3_600_000)
       : 0;
 

@@ -7,17 +7,22 @@ function escapeHtml(s) {
     ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
 }
 
+// Label granularity comes from the window's `labels` field (see WINDOWS in
+// state.js). 'live' has no entry and falls through to HH:MM:SS.
 function fmt(isoOrMs) {
   const d = new Date(isoOrMs);
   const w = WINDOWS[currentWindow];
-  if (w && w.bucketMs)  // long windows: date only (with year for 1y)
-    return d.toLocaleDateString('en', currentWindow === '365d'
-      ? {year:'numeric', month:'short', day:'numeric'}
-      : {month:'short', day:'numeric'});
-  if (currentWindow === '24h' || currentWindow === '7d')
-    return d.toLocaleDateString('en', {month:'short', day:'numeric'}) + ' ' +
-           d.toLocaleTimeString('en', {hour:'2-digit', minute:'2-digit', hour12: false});
-  return d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', second:'2-digit', hour12: false});
+  switch (w && w.labels) {
+    case 'date-year':
+      return d.toLocaleDateString('en', {year:'numeric', month:'short', day:'numeric'});
+    case 'date':
+      return d.toLocaleDateString('en', {month:'short', day:'numeric'});
+    case 'datetime':
+      return d.toLocaleDateString('en', {month:'short', day:'numeric'}) + ' ' +
+             d.toLocaleTimeString('en', {hour:'2-digit', minute:'2-digit', hour12: false});
+    default:
+      return d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', second:'2-digit', hour12: false});
+  }
 }
 
 function cssVar(name) {
