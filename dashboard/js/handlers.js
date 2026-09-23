@@ -96,6 +96,9 @@ function renderEvents() {
     const threshold = Number(e.threshold);
     const valStr    = Number.isFinite(value)     ? value.toFixed(1)     : '--';
     const thrStr    = Number.isFinite(threshold) ? threshold.toFixed(1) : '--';
+    // Which threshold was crossed; older daemons don't send it, so no tag then.
+    const lvl       = e.level === 'warn' || e.level === 'crit' ? statusBadge(e.level) : null;
+    const lvlTag    = lvl ? `<span class="lvl ${lvl.cls}">${lvl.text}</span>` : '';
     return `
       <li>
         <span class="badge ${exceeded ? 'exceeded' : 'recovered'}">
@@ -103,7 +106,7 @@ function renderEvents() {
         </span>
         <span class="event-sensor">${escapeHtml(e.sensor_id)}</span>
         <span class="ts">${escapeHtml(fmt(e.timestamp))}</span>
-        <span class="det">${escapeHtml(e.metric ?? '')}=${valStr} · threshold ${thrStr}</span>
+        <span class="det">${lvlTag}${escapeHtml(e.metric ?? '')}=${valStr} · threshold ${thrStr}</span>
       </li>`;
   }).join('');
 }

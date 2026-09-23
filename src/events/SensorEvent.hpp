@@ -12,10 +12,10 @@ struct SensorEvent {
         ThresholdRecovered,
     };
 
-    // Alert level the monitor holds for this sensor after evaluating the
-    // reading (hysteresis applied). Only meaningful on Reading events: it lets
-    // late subscribers learn the current state without having seen the
-    // one-shot ThresholdExceeded/Recovered transitions.
+    // Reading: alert level the monitor holds for this sensor after evaluating
+    // the reading (hysteresis applied), so late subscribers learn the current
+    // state without having seen the one-shot transitions.
+    // ThresholdExceeded/Recovered: which threshold crossed (Warn or Crit).
     enum class Level {
         Ok,
         Warn,

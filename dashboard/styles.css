@@ -90,6 +90,7 @@ canvas{display:block;width:100%!important;height:100%!important}
 .badge{padding:1px 7px;border-radius:4px;font-size:10px;font-weight:700;white-space:nowrap}
 .exceeded{background:var(--err-bg);color:var(--err-fg)}
 .recovered{background:var(--ok-bg);color:var(--ok-fg)}
+.lvl{display:inline-block;margin-right:6px;padding:0 5px;border-radius:3px;font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;font-family:inherit}
 .event-sensor{color:var(--text);font-weight:600;font-size:11.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ts{color:var(--muted-2);font-size:10.5px;font-variant-numeric:tabular-nums;white-space:nowrap}
 .empty{color:var(--muted-2);font-size:12px;padding:24px 14px;display:block;text-align:center}
