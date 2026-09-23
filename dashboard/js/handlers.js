@@ -13,8 +13,7 @@ function handleReading(sensorId, data) {
   const sid = domId(sensorId);
   document.getElementById('val-' + sid).textContent = data.value.toFixed(1);
 
-  const s = document.getElementById('status-' + sid);
-  if (s.textContent === '--') { s.textContent = 'OK'; s.className = 'status ok'; }
+  refreshStatus(sensorId, data.level);
 
   const chart = charts[sensorId];
   if (currentWindow === 'live') {
@@ -52,12 +51,29 @@ function handleReading(sensorId, data) {
   document.getElementById('updated').textContent = 'Updated ' + new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', second:'2-digit', hour12: false});
 }
 
-function handleAlert(sensorId, data) {
-  const sid        = domId(sensorId);
-  const isExceeded = data.type === 'EXCEEDED';
+// Show the alert level the daemon attaches to each reading. Readings are
+// retained on the broker, so a freshly opened dashboard gets the current
+// state straight away instead of waiting for the next one-shot alert event.
+function refreshStatus(sensorId, level) {
+  const s = document.getElementById('status-' + domId(sensorId));
+  if (!s) return;
+  const badge = statusBadge(level);
+  // An older daemon sends no level: keep whatever the badge already shows.
+  if (!badge) {
+    if (s.textContent === '--') { s.textContent = 'OK'; s.className = 'status ok'; }
+    return;
+  }
+  s.textContent   = badge.text;
+  s.className     = 'status ' + badge.cls;
+  s.dataset.level = level;
+}
 
-  const s = document.getElementById('status-' + sid);
-  if (s) {
+function handleAlert(sensorId, data) {
+  // The badge follows the level carried by readings (refreshStatus). Only a
+  // daemon too old to send that level still drives the badge from alerts.
+  const s = document.getElementById('status-' + domId(sensorId));
+  if (s && !s.dataset.level) {
+    const isExceeded = data.type === 'EXCEEDED';
     s.textContent = isExceeded ? 'Alert' : 'OK';
     s.className   = 'status ' + (isExceeded ? 'alert' : 'ok');
   }

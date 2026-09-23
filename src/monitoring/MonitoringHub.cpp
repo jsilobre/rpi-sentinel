@@ -59,6 +59,9 @@ void MonitoringHub::update_thresholds(const std::string& sensor_id, float warn, 
     auto it = monitor_map_.find(sensor_id);
     if (it == monitor_map_.end()) return;
     it->second->update_thresholds(warn, crit);
+    // Re-evaluate now so the published level reflects the new thresholds
+    // without waiting for the next poll.
+    it->second->force_poll();
 
     std::lock_guard lock(config_mutex_);
     for (auto& sc : config_.sensors) {

@@ -1,6 +1,7 @@
 #include "ThresholdMonitor.hpp"
 
 #include <print>
+#include <vector>
 
 namespace rpi {
 
@@ -59,55 +60,48 @@ void ThresholdMonitor::run(std::stop_token stop)
             const float thr_warn  = threshold_warn_.load();
             const float thr_crit  = threshold_crit_.load();
 
+            // Evaluate thresholds first so the Reading event can carry the
+            // resulting level; transitions are dispatched after the reading.
+            std::vector<SensorEvent> transitions;
+            auto transition = [&](SensorEvent::Type type, float threshold) {
+                transitions.push_back(SensorEvent{
+                    .type      = type,
+                    .metric    = result->metric,
+                    .value     = temp,
+                    .threshold = threshold,
+                    .sensor_id = result->sensor_id,
+                });
+            };
+
+            // Critical threshold (highest priority)
+            if (!crit_active_ && temp >= thr_crit) {
+                crit_active_ = true;
+                transition(SensorEvent::Type::ThresholdExceeded, thr_crit);
+            } else if (crit_active_ && temp < thr_crit - config_.hysteresis) {
+                crit_active_ = false;
+                transition(SensorEvent::Type::ThresholdRecovered, thr_crit);
+            }
+
+            // Warning threshold
+            if (!warn_active_ && temp >= thr_warn && !crit_active_) {
+                warn_active_ = true;
+                transition(SensorEvent::Type::ThresholdExceeded, thr_warn);
+            } else if (warn_active_ && temp < thr_warn - config_.hysteresis) {
+                warn_active_ = false;
+                transition(SensorEvent::Type::ThresholdRecovered, thr_warn);
+            }
+
             bus_.dispatch(SensorEvent{
                 .type      = SensorEvent::Type::Reading,
                 .metric    = result->metric,
                 .value     = temp,
                 .threshold = 0.0f,
                 .sensor_id = result->sensor_id,
+                .level     = crit_active_ ? SensorEvent::Level::Crit
+                           : warn_active_ ? SensorEvent::Level::Warn
+                                          : SensorEvent::Level::Ok,
             });
-
-            // Critical threshold (highest priority)
-            if (!crit_active_ && temp >= thr_crit) {
-                crit_active_ = true;
-                bus_.dispatch(SensorEvent{
-                    .type      = SensorEvent::Type::ThresholdExceeded,
-                    .metric    = result->metric,
-                    .value     = temp,
-                    .threshold = thr_crit,
-                    .sensor_id = result->sensor_id,
-                });
-            } else if (crit_active_ && temp < thr_crit - config_.hysteresis) {
-                crit_active_ = false;
-                bus_.dispatch(SensorEvent{
-                    .type      = SensorEvent::Type::ThresholdRecovered,
-                    .metric    = result->metric,
-                    .value     = temp,
-                    .threshold = thr_crit,
-                    .sensor_id = result->sensor_id,
-                });
-            }
-
-            // Warning threshold
-            if (!warn_active_ && temp >= thr_warn && !crit_active_) {
-                warn_active_ = true;
-                bus_.dispatch(SensorEvent{
-                    .type      = SensorEvent::Type::ThresholdExceeded,
-                    .metric    = result->metric,
-                    .value     = temp,
-                    .threshold = thr_warn,
-                    .sensor_id = result->sensor_id,
-                });
-            } else if (warn_active_ && temp < thr_warn - config_.hysteresis) {
-                warn_active_ = false;
-                bus_.dispatch(SensorEvent{
-                    .type      = SensorEvent::Type::ThresholdRecovered,
-                    .metric    = result->metric,
-                    .value     = temp,
-                    .threshold = thr_warn,
-                    .sensor_id = result->sensor_id,
-                });
-            }
+            for (const auto& ev : transitions) bus_.dispatch(ev);
         }
 
         std::unique_lock lock(sleep_mtx_);

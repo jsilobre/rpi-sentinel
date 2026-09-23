@@ -40,3 +40,14 @@ function hideResetZoom(sensorId) {
   const btn = document.getElementById('reset-zoom-' + domId(sensorId));
   if (btn) btn.style.display = 'none';
 }
+
+// Badge text + CSS class for a reading's `level` ('ok' | 'warn' | 'crit').
+// Returns null when the level is missing or unknown (older daemon).
+function statusBadge(level) {
+  switch (level) {
+    case 'ok':   return { text: 'OK',   cls: 'ok' };
+    case 'warn': return { text: 'Warn', cls: 'warn' };
+    case 'crit': return { text: 'Crit', cls: 'alert' };
+    default:     return null;
+  }
+}

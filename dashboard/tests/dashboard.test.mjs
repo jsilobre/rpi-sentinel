@@ -78,7 +78,7 @@ function loadHelpers() {
   const files = ['js/state.js', 'js/utils.js', 'js/layout.js', 'js/combined.js'];
   const epilogue = `
     globalThis.__T__ = {
-      domId, escapeHtml, fmt, newRequestId,
+      domId, escapeHtml, fmt, newRequestId, statusBadge,
       unitFor, axisTitle, gridColumns, positionCardInGrid,
       setWindow: (w) => { currentWindow = w; },
       WINDOWS,
@@ -186,4 +186,13 @@ test('WINDOWS separates rollup bucketing from cloud-only and label concerns', ()
     assert.ok(['time', 'datetime', 'date', 'date-year'].includes(cfg.labels),
       `${name} has an unknown labels value: ${cfg.labels}`);
   }
+});
+
+test('statusBadge maps the daemon-provided level to the card badge', () => {
+  assert.deepEqual({ ...H.statusBadge('ok') },   { text: 'OK',   cls: 'ok' });
+  assert.deepEqual({ ...H.statusBadge('warn') }, { text: 'Warn', cls: 'warn' });
+  assert.deepEqual({ ...H.statusBadge('crit') }, { text: 'Crit', cls: 'alert' });
+  // Older daemons send no level: the caller must leave the badge alone.
+  assert.equal(H.statusBadge(undefined), null);
+  assert.equal(H.statusBadge('bogus'), null);
 });

@@ -73,3 +73,60 @@ TEST(ThresholdMonitor, BelowThresholdNoEvent)
     std::lock_guard lock(handler->mutex_);
     EXPECT_TRUE(handler->events.empty());
 }
+
+// Captures only Reading events, to inspect the level they carry
+class ReadingCapture final : public IAlertHandler {
+public:
+    void on_event(const SensorEvent& ev) override {
+        if (ev.type != SensorEvent::Type::Reading) return;
+        std::lock_guard lock(mutex_);
+        readings.push_back(ev);
+    }
+    std::vector<SensorEvent> readings;
+    std::mutex mutex_;
+};
+
+namespace {
+
+std::vector<SensorEvent> readings_for(float value)
+{
+    SimulatedSensor sensor("test", "tvoc", [value]() { return value; });
+
+    EventBus bus;
+    auto handler = std::make_shared<ReadingCapture>();
+    bus.register_handler(handler);
+
+    MonitorConfig cfg{
+        .threshold_warn = 50.0f,
+        .threshold_crit = 65.0f,
+        .hysteresis     = 2.0f,
+        .poll_interval  = std::chrono::milliseconds{50},
+    };
+
+    ThresholdMonitor monitor(sensor, bus, cfg);
+    monitor.start();
+    std::this_thread::sleep_for(std::chrono::milliseconds{200});
+    monitor.stop();
+
+    std::lock_guard lock(handler->mutex_);
+    return handler->readings;
+}
+
+} // namespace
+
+TEST(ThresholdMonitor, ReadingCarriesCurrentLevel)
+{
+    // Every reading reports the level, not just the one that crossed the
+    // threshold — so a late subscriber learns the state from any reading.
+    const auto crit = readings_for(75.0f);
+    ASSERT_GE(crit.size(), 2u);
+    for (const auto& r : crit) EXPECT_EQ(r.level, SensorEvent::Level::Crit);
+
+    const auto warn = readings_for(55.0f);
+    ASSERT_GE(warn.size(), 2u);
+    for (const auto& r : warn) EXPECT_EQ(r.level, SensorEvent::Level::Warn);
+
+    const auto ok = readings_for(20.0f);
+    ASSERT_FALSE(ok.empty());
+    for (const auto& r : ok) EXPECT_EQ(r.level, SensorEvent::Level::Ok);
+}
