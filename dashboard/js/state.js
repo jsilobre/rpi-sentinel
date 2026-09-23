@@ -6,6 +6,20 @@
 
 const MAX_HISTORY = 120;
 const MAX_EVENTS  = 50;
+// Live-mode hydration window on the Cloudflare path: ~MAX_HISTORY points at the
+// default 5 s poll interval.
+const LIVE_HYDRATION_MS = 10 * 60_000;
+
+// ── MQTT credentials / admin mode ───────────────────────────────────────────────
+// The credentials baked into the page (MQTT_USER / MQTT_PASS) are public and
+// meant to be read-only (HiveMQ "Subscribe Only"). Anything that publishes —
+// threshold changes, Refresh, Clear Data, MQTT history requests — needs the
+// admin credentials, typed in by the owner and kept in this browser only.
+// HiveMQ disconnects an MQTT 3.1.1 client that publishes where it may not, so
+// in viewer mode the page must never publish at all. Set in main.js.
+const ADMIN_CREDS_KEY = 'rpi-sentinel-admin-creds';
+let   canPublish      = false;
+const ADMIN_REQUIRED  = 'Admin sign-in required';
 
 // Time-window definitions. These four fields used to be one overloaded
 // `bucketMs`; they are independent and are kept separate on purpose:

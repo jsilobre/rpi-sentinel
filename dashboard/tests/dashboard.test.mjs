@@ -79,6 +79,7 @@ function loadHelpers() {
   const epilogue = `
     globalThis.__T__ = {
       domId, escapeHtml, fmt, newRequestId, statusBadge, snapshotToEvents,
+      loadAdminCreds, mqttCredentials, ADMIN_CREDS_KEY,
       unitFor, axisTitle, gridColumns, positionCardInGrid,
       setWindow: (w) => { currentWindow = w; },
       WINDOWS,
@@ -220,4 +221,37 @@ test('snapshotToEvents tolerates malformed payloads', () => {
   assert.equal(H.snapshotToEvents({ alerts: 'nope' }, 0, 50).length, 0);
   assert.equal(H.snapshotToEvents(null, 0, 50).length, 0);
   assert.equal(H.snapshotToEvents({ alerts: [null, { foo: 1 }] }, 0, 50).length, 0);
+});
+
+// Minimal Storage stand-in for the admin-credential helpers.
+function fakeStorage(init = {}) {
+  const m = { ...init };
+  return { getItem: k => (k in m ? m[k] : null) };
+}
+
+test('loadAdminCreds returns null unless a complete pair is stored', () => {
+  const K = H.ADMIN_CREDS_KEY;
+  assert.equal(H.loadAdminCreds([fakeStorage()]), null);
+  assert.equal(H.loadAdminCreds([fakeStorage({ [K]: '{not json' })]), null);
+  assert.equal(H.loadAdminCreds([fakeStorage({ [K]: '{"username":"a"}' })]), null);
+  assert.equal(H.loadAdminCreds([fakeStorage({ [K]: '{"username":"","password":"x"}' })]), null);
+  const throwing = { getItem() { throw new Error('SecurityError'); } };
+  assert.equal(H.loadAdminCreds([throwing]), null);
+});
+
+test('loadAdminCreds prefers the first storage holding valid credentials', () => {
+  const K = H.ADMIN_CREDS_KEY;
+  const session = fakeStorage({ [K]: '{"username":"s","password":"1"}' });
+  const local   = fakeStorage({ [K]: '{"username":"l","password":"2"}' });
+  assert.deepEqual({ ...H.loadAdminCreds([session, local]) }, { username: 's', password: '1' });
+  assert.deepEqual({ ...H.loadAdminCreds([fakeStorage(), local]) }, { username: 'l', password: '2' });
+});
+
+test('mqttCredentials only grants publish in admin mode', () => {
+  // Viewer: the public (read-only) credentials, and never publish — HiveMQ
+  // disconnects a client that publishes without the right.
+  assert.deepEqual({ ...H.mqttCredentials(null, 'viewer', 'vp') },
+    { username: 'viewer', password: 'vp', canPublish: false });
+  assert.deepEqual({ ...H.mqttCredentials({ username: 'admin', password: 'ap' }, 'viewer', 'vp') },
+    { username: 'admin', password: 'ap', canPublish: true });
 });

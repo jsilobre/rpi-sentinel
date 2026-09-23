@@ -183,17 +183,31 @@ dashboard simply continues with live readings as before. On reconnect, the
 client re-issues hydration for any sensors that are not yet hydrated this
 session.
 
-### Broker ACL changes
+### Broker credentials (who may publish)
 
-The HiveMQ Cloud user that the dashboard connects with needs two extra ACL
-rules in addition to its existing read access:
+The dashboard's baked-in credentials (`MQTT_USER` / `MQTT_PASS`, injected at
+deploy time) are readable by anyone who opens the page, so they must be
+**read-only**. HiveMQ Cloud Serverless allows a single permission per
+credential, so "read everything, publish to four topics" can't be expressed;
+instead the dashboard has two modes:
 
-| Pattern | Permission |
-|---|---|
-| `rpi/history/req` | publish |
-| `rpi/history/resp/+` | subscribe |
+| Credential | HiveMQ permission | Lives in | Used for |
+|---|---|---|---|
+| `rpi-daemon` | Publish and Subscribe `#` | `config.json` on the Pi | the daemon |
+| `dashboard-viewer` | Subscribe Only `#` | GitHub secrets `MQTT_USER` / `MQTT_PASS` (public) | default dashboard mode |
+| `dashboard-admin` | Publish and Subscribe `#` | typed into the dashboard's **🔒 Admin** sign-in, kept in that browser only | threshold changes, Refresh, Clear Data, MQTT history requests |
 
-Without these, hydration requests will be silently dropped by the broker.
+In **viewer mode** the dashboard never publishes: HiveMQ disconnects an
+MQTT 3.1.1 client that publishes without the right, which would loop forever.
+Live-mode hydration then comes from the Cloudflare Worker
+(`GET /history?since_ts=now-10min&limit=120`); without a Worker, charts start
+empty and fill with live readings. The write buttons are disabled with an
+"Admin sign-in required" tooltip.
+
+**Admin mode** stores the credentials in `sessionStorage` (or `localStorage`
+when "Remember on this device" is ticked) and reconnects with them; a broker
+refusal drops them and falls back to viewer mode. **🔓 Leave admin** forgets
+them.
 
 ---
 
@@ -226,9 +240,9 @@ dashboard opened later would miss them. The daemon therefore also publishes a
 - A daemon restart re-evaluates every sensor from scratch, so an alert that
   was already active is logged again as a fresh `EXCEEDED`.
 
-**Broker ACL:** the dashboard user needs `subscribe` on `rpi/alerts/recent`
-and the daemon user `publish` on it — the topic doesn't match the
-`rpi/+/reading` / `rpi/+/alert` patterns.
+**Broker permissions:** covered by the `#` filters above (daemon publishes,
+viewer subscribes). With narrower custom filters, note the topic doesn't match
+`rpi/+/reading` / `rpi/+/alert`.
 
 ---
 

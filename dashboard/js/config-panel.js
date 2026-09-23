@@ -45,6 +45,10 @@ function renderConfigPanel() {
       row.querySelector('.config-save-btn').addEventListener('click', () => saveThreshold(id, sid));
       container.appendChild(row);
     }
+    const saveBtn = row.querySelector('.config-save-btn');
+    saveBtn.disabled = !canPublish;
+    saveBtn.title    = canPublish ? '' : ADMIN_REQUIRED;
+
     const warnInput = row.querySelector('#cfg-warn-' + sid);
     const critInput = row.querySelector('#cfg-crit-' + sid);
     if (warnInput && warnInput.id !== activeId) warnInput.value = thr.warn.toFixed(1);
@@ -64,6 +68,10 @@ function saveThreshold(sensorId, sid) {
     return;
   }
   fb.title = '';
+  if (!canPublish) {
+    fb.textContent = 'Admin only'; fb.className = 'save-feedback save-err';
+    return;
+  }
   if (!client || !client.connected) {
     fb.textContent = 'Offline'; fb.className = 'save-feedback save-err';
     return;
@@ -75,7 +83,6 @@ function saveThreshold(sensorId, sid) {
 
   fb.textContent = 'Sending…'; fb.className = 'save-feedback';
 
-  // Note: the MQTT subscriber user must have write permission on rpi/config/set in HiveMQ ACLs
   client.publish(
     `${TOPIC_PREFIX}/config/set`,
     JSON.stringify({ sensor_id: sensorId, threshold_warn: warn, threshold_crit: crit }),

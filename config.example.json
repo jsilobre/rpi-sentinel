@@ -8,6 +8,8 @@
     "mqtt": {
         "enabled": false,
         "broker_url": "ssl://YOUR_CLUSTER.hivemq.cloud:8883",
+        // The daemon's own HiveMQ credential (Publish and Subscribe) — never the
+        // dashboard's public read-only one. See docs/persistence.md §3.
         "username": "YOUR_PUBLISHER_USER",
         "password": "YOUR_PUBLISHER_PASSWORD",
         "topic_prefix": "rpi"

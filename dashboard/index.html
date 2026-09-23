@@ -21,6 +21,7 @@
     <button class="icon-btn" id="viewmode-btn" title="Switch between per-sensor cards and a single combined graph">▦ Combined</button>
     <button class="icon-btn" id="organize-btn" title="Arrange sensor windows alphabetically">⊞ Organize</button>
     <button class="icon-btn" id="config-btn" title="Configure thresholds">⚙ Config</button>
+    <button class="icon-btn" id="admin-btn" title="Sign in to change thresholds, refresh or clear data">🔒 Admin</button>
     <button class="icon-btn" id="export-btn" title="Cloud storage required to export" disabled>⬇ Export CSV</button>
     <button class="icon-btn danger" id="clear-btn" title="Delete all stored history">🗑 Clear Data</button>
     <button class="icon-btn" id="theme-btn" title="Toggle theme">☾</button>
@@ -89,10 +90,28 @@
     </div>
   </div>
 
+  <div class="modal-backdrop" id="admin-modal">
+    <div class="modal modal-sm">
+      <div class="modal-head">
+        <h3 id="admin-modal-title">Admin sign-in</h3>
+        <button class="modal-close" id="admin-close" aria-label="Close">✕</button>
+      </div>
+      <form class="modal-body admin-form" id="admin-form" autocomplete="on">
+        <p class="admin-hint">MQTT credentials with publish rights. They stay in this browser and are never sent anywhere but the broker.</p>
+        <label>Username <input class="admin-input" id="admin-user" name="username" autocomplete="username" required></label>
+        <label>Password <input class="admin-input" id="admin-pass" name="password" type="password" autocomplete="current-password" required></label>
+        <label class="admin-remember"><input type="checkbox" id="admin-remember"> Remember on this device</label>
+        <p class="admin-error" id="admin-error"></p>
+        <button class="config-save-btn" type="submit">Sign in</button>
+      </form>
+    </div>
+  </div>
+
   <!-- ── Deploy-time configuration ──────────────────────────────────────────────
        These placeholders are substituted by the Deploy Dashboard workflow
        (sed over this file). They MUST stay inline here for the injection to work.
-       Replace with your HiveMQ Cloud cluster and subscriber (read-only) creds. -->
+       MQTT_USER / MQTT_PASS are PUBLIC: use a read-only ("Subscribe Only")
+       HiveMQ credential. Write actions use the admin sign-in instead. -->
   <script>
     const BROKER_WSS       = '__MQTT_BROKER_WSS__';
     const MQTT_USER        = '__MQTT_USER__';
