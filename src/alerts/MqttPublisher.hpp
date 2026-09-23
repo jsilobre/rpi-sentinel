@@ -5,6 +5,7 @@
 #include "IAlertHandler.hpp"
 #include "../monitoring/Config.hpp"
 #include "../persistence/HistoryStore.hpp"  // StoredAlert (std::deque needs a complete type)
+#include <atomic>
 #include <condition_variable>
 #include <deque>
 #include <expected>
@@ -73,6 +74,9 @@ private:
 
     MqttConfig                    config_;
     mosquitto*                    mosq_ = nullptr;
+    // Set by disconnect() before it publishes "offline", so the status
+    // self-heal does not answer our own offline message with "online".
+    std::atomic<bool>             stopping_{false};
     ThresholdCallback             threshold_cb_;
     ForcePoller                   force_poller_;
     DataClearer                   data_clearer_;

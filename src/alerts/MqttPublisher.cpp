@@ -163,6 +163,7 @@ void MqttPublisher::connect()
 void MqttPublisher::disconnect()
 {
     if (mosq_) {
+        stopping_ = true;
         const std::string topic   = config_.topic_prefix + "/status";
         const std::string payload = R"({"status":"offline"})";
         // QoS 1 + retain — give the loop time to send and receive PUBACK
@@ -274,7 +275,9 @@ void MqttPublisher::handle_message(const struct mosquitto_message* msg)
     }
 
     // Self-heal: if another process's LWT overwrites our retained status, restore it.
+    // Not while shutting down: that "offline" is our own.
     if (topic == status_topic_ && payload.find("offline") != std::string::npos) {
+        if (stopping_) return;
         publish(status_topic_, R"({"status":"online"})", /*retain=*/true);
         return;
     }
