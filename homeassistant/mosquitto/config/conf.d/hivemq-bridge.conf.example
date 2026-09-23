@@ -1,0 +1,38 @@
+# Bridge between this local broker and HiveMQ Cloud, where rpi-sentinel,
+# the dashboard and the M5 display already meet.
+#
+#   cp hivemq-bridge.conf.example hivemq-bridge.conf   # git-ignored
+#
+# then fill in the cluster address and a HiveMQ credential dedicated to the
+# bridge (HiveMQ console > Access Management), with publish + subscribe rights.
+
+connection hivemq
+address YOUR_CLUSTER.s1.eu.hivemq.cloud:8883
+remote_clientid rpi-ha-bridge
+remote_username YOUR_BRIDGE_USER
+remote_password YOUR_BRIDGE_PASSWORD
+bridge_cafile /etc/ssl/certs/ca-certificates.crt
+
+# MQTT v5 keeps the retain flag on forwarded messages ("retain as
+# published"). With v3.1.1, discovery configs published while the bridge is
+# up would not be retained locally and the entities would vanish at the next
+# Home Assistant restart.
+bridge_protocol_version mqttv50
+try_private false
+cleansession true
+notifications false
+start_type automatic
+restart_timeout 5 60
+
+# HiveMQ -> local: what Home Assistant reads. "rpi" is mqtt.topic_prefix in
+# the daemon's config.json; the discovery node is "<topic_prefix>-sentinel".
+topic rpi/+/reading in 1
+topic rpi/+/alert in 1
+topic rpi/status in 1
+topic rpi/alerts/recent in 1
+topic rpi/claude/usage in 1
+topic homeassistant/+/rpi-sentinel/+/config in 1
+
+# Local -> HiveMQ: the "Refresh readings" button. Kept disjoint from the
+# "in" patterns so nothing can loop between the two brokers.
+topic rpi/cmd/refresh out 1

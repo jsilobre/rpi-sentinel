@@ -2,9 +2,11 @@
 
 #ifdef ENABLE_MQTT
 
+#include "HaDiscovery.hpp"
 #include "IAlertHandler.hpp"
 #include "../monitoring/Config.hpp"
 #include "../persistence/HistoryStore.hpp"  // StoredAlert (std::deque needs a complete type)
+#include <atomic>
 #include <condition_variable>
 #include <deque>
 #include <expected>
@@ -14,6 +16,7 @@
 #include <queue>
 #include <string>
 #include <thread>
+#include <vector>
 
 struct mosquitto;
 struct mosquitto_message;
@@ -38,6 +41,9 @@ public:
     void set_force_poller(ForcePoller cb);
     void set_data_clearer(DataClearer cb);
     void set_history_store(std::shared_ptr<HistoryStore> store);
+    // Home Assistant discovery configs, published retained on every
+    // (re)connect. Call before connect().
+    void set_ha_discovery(std::vector<DiscoveryMessage> messages);
     void publish_config(const std::string& config_json);
 
     void on_event(const SensorEvent& event) override;
@@ -73,10 +79,14 @@ private:
 
     MqttConfig                    config_;
     mosquitto*                    mosq_ = nullptr;
+    // Set by disconnect() before it publishes "offline", so the status
+    // self-heal does not answer our own offline message with "online".
+    std::atomic<bool>             stopping_{false};
     ThresholdCallback             threshold_cb_;
     ForcePoller                   force_poller_;
     DataClearer                   data_clearer_;
     std::shared_ptr<HistoryStore> history_store_;
+    std::vector<DiscoveryMessage> ha_discovery_;
     std::string                   status_topic_;
     std::string                   config_topic_current_;
     std::string                   config_topic_set_;

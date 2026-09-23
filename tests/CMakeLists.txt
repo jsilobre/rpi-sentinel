@@ -13,6 +13,7 @@ add_executable(rpi_tests
     test_threshold_monitor.cpp
     test_config_loader.cpp
     test_gpio_alert.cpp
+    test_ha_discovery.cpp
     test_history_store.cpp
     test_sgp30_reader.cpp
 )

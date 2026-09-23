@@ -163,6 +163,7 @@ void MqttPublisher::connect()
 void MqttPublisher::disconnect()
 {
     if (mosq_) {
+        stopping_ = true;
         const std::string topic   = config_.topic_prefix + "/status";
         const std::string payload = R"({"status":"offline"})";
         // QoS 1 + retain — give the loop time to send and receive PUBACK
@@ -197,6 +198,8 @@ void MqttPublisher::handle_connect(int rc)
     mosquitto_subscribe(mosq_, nullptr, status_topic_.c_str(), /*qos=*/1);
     mosquitto_subscribe(mosq_, nullptr, cmd_refresh_topic_.c_str(), /*qos=*/1);
     mosquitto_subscribe(mosq_, nullptr, cmd_clear_topic_.c_str(),   /*qos=*/1);
+    for (const auto& msg : ha_discovery_)
+        publish(msg.topic, msg.payload, /*retain=*/true);
     publish(status_topic_, R"({"status":"online"})", /*retain=*/true);
     publish(alerts_topic_, alerts_snapshot(), /*retain=*/true);
     std::println("[MqttPublisher] Connected and online");
@@ -220,6 +223,11 @@ void MqttPublisher::set_data_clearer(DataClearer cb)
 void MqttPublisher::set_history_store(std::shared_ptr<HistoryStore> store)
 {
     history_store_ = std::move(store);
+}
+
+void MqttPublisher::set_ha_discovery(std::vector<DiscoveryMessage> messages)
+{
+    ha_discovery_ = std::move(messages);
 }
 
 void MqttPublisher::publish_config(const std::string& config_json)
@@ -274,7 +282,9 @@ void MqttPublisher::handle_message(const struct mosquitto_message* msg)
     }
 
     // Self-heal: if another process's LWT overwrites our retained status, restore it.
+    // Not while shutting down: that "offline" is our own.
     if (topic == status_topic_ && payload.find("offline") != std::string::npos) {
+        if (stopping_) return;
         publish(status_topic_, R"({"status":"online"})", /*retain=*/true);
         return;
     }

@@ -8,6 +8,7 @@ Technical reference for current and future development.
 | [workflow.md](workflow.md) | Data flow, event lifecycle, threading model |
 | [build-guide.md](build-guide.md) | Build, tests, CI/CD, RPi deployment |
 | [persistence.md](persistence.md) | History storage (SQLite), MQTT history-on-demand |
+| [../homeassistant/](../homeassistant/) | Home Assistant + local Mosquitto in Docker, bridged to HiveMQ; the daemon's MQTT discovery |
 | [../companion/](../companion/) | Claude usage publisher — Pi-side sidecar that publishes Claude Code usage to the same broker for `rpi-sentinel-display` |
 
 ## Quick overview

@@ -1,0 +1,30 @@
+# Home Assistant + a local Mosquitto broker, next to rpi-sentinel on the Pi.
+# Setup steps: see README.md in this directory.
+services:
+  homeassistant:
+    image: ghcr.io/home-assistant/home-assistant:stable
+    container_name: homeassistant
+    restart: unless-stopped
+    # Host networking lets HA discover devices on the LAN (mDNS, SSDP...).
+    # UI on http://<pi>:8123, local broker on 127.0.0.1:1883.
+    network_mode: host
+    environment:
+      TZ: Europe/Paris
+    volumes:
+      - ./ha-config:/config
+      - /etc/localtime:/etc/localtime:ro
+      - /run/dbus:/run/dbus:ro   # Bluetooth integrations
+    depends_on:
+      - mosquitto
+
+  mosquitto:
+    image: eclipse-mosquitto:2
+    container_name: mosquitto
+    restart: unless-stopped
+    # Exposed on the LAN for future devices (Zigbee2MQTT, ESPHome, Tasmota...).
+    # Anonymous access is disabled in mosquitto.conf.
+    ports:
+      - "1883:1883"
+    volumes:
+      - ./mosquitto/config:/mosquitto/config
+      - ./mosquitto/data:/mosquitto/data
