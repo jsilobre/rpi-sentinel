@@ -24,8 +24,10 @@ function updateRefreshButtonState() {
   let online = false;
   try { online = !!(client && client.connected); } catch { online = false; }
   if (btn.dataset.busy === '1') return;
-  btn.disabled = !online;
-  btn.title = online ? 'Force immediate sensor poll' : 'Disconnected — refresh unavailable';
+  btn.disabled = !online || !canPublish;
+  btn.title = !canPublish ? ADMIN_REQUIRED
+            : online      ? 'Force immediate sensor poll'
+                          : 'Disconnected — refresh unavailable';
 }
 
 // ── Organize sensors alphabetically ─────────────────────────────────────────────
@@ -34,7 +36,7 @@ document.getElementById('organize-btn').addEventListener('click', organizeSensor
 // ── Refresh (force-poll) ─────────────────────────────────────────────────────────
 document.getElementById('refresh-btn').addEventListener('click', () => {
   const btn = document.getElementById('refresh-btn');
-  if (!client || !client.connected) return;
+  if (!canPublish || !client || !client.connected) return;
   btn.dataset.busy = '1';
   btn.disabled = true;
   btn.textContent = '↻ Refreshing…';
@@ -69,6 +71,7 @@ document.getElementById('refresh-btn').addEventListener('click', () => {
 
 // ── Clear all stored history ─────────────────────────────────────────────────────
 document.getElementById('clear-btn').addEventListener('click', () => {
+  if (!canPublish) return;
   if (!confirm('Supprimer toutes les données enregistrées ? Cette action est irréversible.')) return;
   const btn = document.getElementById('clear-btn');
   if (!client || !client.connected) {
@@ -188,47 +191,99 @@ applyTheme(localStorage.getItem('rpi-sentinel-theme') || 'light');
 document.querySelectorAll('.time-btn').forEach(b =>
   b.classList.toggle('active', b.dataset.w === currentWindow));
 
-// ── Config modal ─────────────────────────────────────────────────────────────────
-const modal           = document.getElementById('config-modal');
-const modalDialog     = modal.querySelector('.modal');
-modal.setAttribute('role', 'dialog');
-modal.setAttribute('aria-modal', 'true');
-modal.setAttribute('aria-hidden', 'true');
-modalDialog.setAttribute('aria-labelledby', 'config-modal-title');
-modal.querySelector('.modal-head h3').id = 'config-modal-title';
+// ── Modals (config + admin sign-in) ──────────────────────────────────────────────
+// Shared open/close, Escape, backdrop click and a simple focus trap.
+function setupModal(backdropId, titleId, focusId) {
+  const backdrop = document.getElementById(backdropId);
+  const dialog   = backdrop.querySelector('.modal');
+  backdrop.setAttribute('role', 'dialog');
+  backdrop.setAttribute('aria-modal', 'true');
+  backdrop.setAttribute('aria-hidden', 'true');
+  dialog.setAttribute('aria-labelledby', titleId);
+  backdrop.querySelector('.modal-head h3').id = titleId;
 
-let lastFocusedBeforeModal = null;
-function openModal() {
-  lastFocusedBeforeModal = document.activeElement;
-  modal.classList.add('open');
-  modal.setAttribute('aria-hidden', 'false');
-  // Focus the close button by default.
-  setTimeout(() => document.getElementById('modal-close').focus(), 0);
+  let lastFocused = null;
+  const m = {
+    open() {
+      lastFocused = document.activeElement;
+      backdrop.classList.add('open');
+      backdrop.setAttribute('aria-hidden', 'false');
+      setTimeout(() => document.getElementById(focusId).focus(), 0);
+    },
+    close() {
+      backdrop.classList.remove('open');
+      backdrop.setAttribute('aria-hidden', 'true');
+      if (lastFocused && lastFocused.focus) lastFocused.focus();
+    },
+  };
+  backdrop.querySelector('.modal-close').addEventListener('click', m.close);
+  backdrop.addEventListener('click', e => { if (e.target === backdrop) m.close(); });
+  document.addEventListener('keydown', e => {
+    if (!backdrop.classList.contains('open')) return;
+    if (e.key === 'Escape') { m.close(); return; }
+    if (e.key !== 'Tab') return;
+    const focusables = dialog.querySelectorAll(
+      'a[href], button:not([disabled]), input:not([disabled]), select, textarea, [tabindex]:not([tabindex="-1"])'
+    );
+    if (!focusables.length) return;
+    const first = focusables[0];
+    const last  = focusables[focusables.length - 1];
+    if (e.shiftKey && document.activeElement === first) { last.focus(); e.preventDefault(); }
+    else if (!e.shiftKey && document.activeElement === last) { first.focus(); e.preventDefault(); }
+  });
+  return m;
 }
-function closeModal() {
-  modal.classList.remove('open');
-  modal.setAttribute('aria-hidden', 'true');
-  if (lastFocusedBeforeModal && lastFocusedBeforeModal.focus) {
-    lastFocusedBeforeModal.focus();
+
+const configModal = setupModal('config-modal', 'config-modal-title', 'modal-close');
+document.getElementById('config-btn').addEventListener('click', configModal.open);
+
+// ── Admin mode ───────────────────────────────────────────────────────────────────
+const adminModal = setupModal('admin-modal', 'admin-modal-title', 'admin-user');
+
+function forgetAdminCreds() {
+  for (const st of [sessionStorage, localStorage]) {
+    try { st.removeItem(ADMIN_CREDS_KEY); } catch {}
   }
 }
-document.getElementById('config-btn').addEventListener('click', openModal);
-document.getElementById('modal-close').addEventListener('click', closeModal);
-modal.addEventListener('click', e => { if (e.target === modal) closeModal(); });
-document.addEventListener('keydown', e => {
-  if (!modal.classList.contains('open')) return;
-  if (e.key === 'Escape') { closeModal(); return; }
-  if (e.key !== 'Tab') return;
-  // Simple focus trap inside the dialog.
-  const focusables = modalDialog.querySelectorAll(
-    'a[href], button:not([disabled]), input:not([disabled]), select, textarea, [tabindex]:not([tabindex="-1"])'
-  );
-  if (!focusables.length) return;
-  const first = focusables[0];
-  const last  = focusables[focusables.length - 1];
-  if (e.shiftKey && document.activeElement === first) { last.focus(); e.preventDefault(); }
-  else if (!e.shiftKey && document.activeElement === last) { first.focus(); e.preventDefault(); }
+
+document.getElementById('admin-btn').addEventListener('click', () => {
+  if (canPublish) {            // signed in: this button signs out
+    forgetAdminCreds();
+    location.reload();
+    return;
+  }
+  adminModal.open();
 });
+
+document.getElementById('admin-form').addEventListener('submit', e => {
+  e.preventDefault();
+  const username = document.getElementById('admin-user').value.trim();
+  const password = document.getElementById('admin-pass').value;
+  if (!username || !password) return;
+  const remember = document.getElementById('admin-remember').checked;
+  forgetAdminCreds();
+  try {
+    (remember ? localStorage : sessionStorage)
+      .setItem(ADMIN_CREDS_KEY, JSON.stringify({ username, password }));
+  } catch {
+    document.getElementById('admin-error').textContent = 'Browser storage unavailable.';
+    return;
+  }
+  location.reload();           // reconnect with the new credentials
+});
+
+// Disable every write control in viewer mode (they would get us disconnected).
+function applyAccessMode() {
+  const btn = document.getElementById('admin-btn');
+  btn.textContent = canPublish ? '🔓 Leave admin' : '🔒 Admin';
+  btn.title       = canPublish ? 'Sign out of admin mode'
+                               : 'Sign in to change thresholds, refresh or clear data';
+  const clearBtn = document.getElementById('clear-btn');
+  clearBtn.disabled = !canPublish;
+  clearBtn.title    = canPublish ? 'Delete all stored history' : ADMIN_REQUIRED;
+  updateRefreshButtonState();
+  renderConfigPanel();
+}
 
 // ── View mode (per-sensor / combined) ────────────────────────────────────────────
 document.getElementById('viewmode-btn').addEventListener('click', () =>
@@ -236,9 +291,14 @@ document.getElementById('viewmode-btn').addEventListener('click', () =>
 setViewMode(viewMode);
 
 // ── MQTT connection ──────────────────────────────────────────────────────────────
+const adminCreds = loadAdminCreds([sessionStorage, localStorage]);
+const mqttCreds  = mqttCredentials(adminCreds, MQTT_USER, MQTT_PASS);
+canPublish = mqttCreds.canPublish;
+applyAccessMode();
+
 const client = mqtt.connect(BROKER_WSS, {
-  username:        MQTT_USER,
-  password:        MQTT_PASS,
+  username:        mqttCreds.username,
+  password:        mqttCreds.password,
   reconnectPeriod: 3000,
   keepalive:       60,
   clean:           true,
@@ -276,7 +336,18 @@ client.on('connect', () => {
 
 client.on('disconnect', () => setConnStatus('disconnected'));
 client.on('offline',    () => setConnStatus('disconnected'));
-client.on('error',      () => setConnStatus('error'));
+client.on('error', err => {
+  // Wrong admin credentials: drop them and fall back to viewer mode rather
+  // than retrying a rejected login forever.
+  const refused = err && (err.code === 5 || err.code === 135 || /not authori[sz]ed/i.test(err.message || ''));
+  if (canPublish && refused) {
+    forgetAdminCreds();
+    alert('Admin sign-in refused by the broker — back to read-only mode.');
+    location.reload();
+    return;
+  }
+  setConnStatus('error');
+});
 // On reconnect, restore last known RPi state immediately — no offline flash.
 client.on('reconnect',  () => {
   if      (lastRpiStatus === 'online')  setConnStatus('connected');

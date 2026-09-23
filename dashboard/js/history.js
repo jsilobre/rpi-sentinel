@@ -1,6 +1,7 @@
 // ── History hydration & time-window handling ────────────────────────────────────
-// Note: the MQTT subscriber user needs publish on rpi/history/req
-// and subscribe on rpi/history/resp/+ in the broker ACL.
+// MQTT history requests (rpi/history/req) are publishes, so they are only made
+// in admin mode (see canPublish in state.js). In viewer mode history comes
+// from the Cloudflare Worker, or not at all when it isn't configured.
 
 // Fetch a windowed/aggregated history slice from the Cloudflare Worker and feed
 // it to the chart. `params` are extra query-string fields (since_ts, until_ts,
@@ -34,8 +35,8 @@ function requestSingleWindowHydration(sensorId, w) {
   // Long windows are Cloudflare-only — no MQTT equivalent.
   if (cfg.cloudOnly) return;
 
-  // Fallback: MQTT history-on-demand (RPi must be online).
-  if (!client || !client.connected) return;
+  // Fallback: MQTT history-on-demand (RPi must be online, admin mode only).
+  if (!canPublish || !client || !client.connected) return;
   const reqId = newRequestId();
   pendingWindowHydrations[reqId] = sensorId;
   client.publish(
@@ -49,7 +50,24 @@ function requestSingleWindowHydration(sensorId, w) {
 function requestHydration(sensorId) {
   if (hydratedSensors.has(sensorId)) return;
   if (pendingHydrationSet.has(sensorId)) return;
-  if (!client || !client.connected) return;
+
+  if (CLOUD_ENABLED) {
+    // Same shape as the MQTT response ({ts, value} ascending), so it feeds
+    // applyHydration directly. Works without publish rights.
+    pendingHydrationSet.add(sensorId);
+    const url = new URL(CLOUD_WORKER_URL + '/history');
+    url.searchParams.set('sensor_id', sensorId);
+    url.searchParams.set('since_ts', String(Date.now() - LIVE_HYDRATION_MS));
+    url.searchParams.set('limit', String(MAX_HISTORY));
+    fetch(url.toString())
+      .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(data => { if (Array.isArray(data.points)) applyHydration(sensorId, data.points); })
+      .catch(err => console.warn('[CloudStorage] live hydration failed:', err))
+      .finally(() => pendingHydrationSet.delete(sensorId));
+    return;
+  }
+
+  if (!canPublish || !client || !client.connected) return;
 
   const reqId = newRequestId();
   pendingHydrations[reqId] = sensorId;

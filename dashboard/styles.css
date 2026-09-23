@@ -38,6 +38,7 @@ header.topbar{position:sticky;top:0;z-index:10;display:flex;align-items:center;g
 .icon-btn{background:var(--surface-2);border:1px solid var(--border);color:var(--muted);
   padding:5px 10px;border-radius:6px;font-size:12px;cursor:pointer;display:inline-flex;align-items:center;gap:6px}
 .icon-btn:hover{color:var(--text);border-color:var(--muted-2)}
+.icon-btn:disabled,.config-save-btn:disabled{opacity:.45;cursor:not-allowed;filter:none}
 .icon-btn.danger{color:var(--err-fg);border-color:var(--err-bg)}
 .icon-btn.danger:hover{background:var(--err-bg);border-color:var(--err-fg)}
 .updated{font-size:11px;color:var(--muted-2);margin-right:4px}
@@ -104,6 +105,15 @@ canvas{display:block;width:100%!important;height:100%!important}
 .modal-head{padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px}
 .modal-head h3{font-size:14px;font-weight:600}
 .modal-body{padding:6px 18px 14px;overflow-y:auto}
+.modal-sm{max-width:380px}
+.admin-form{display:flex;flex-direction:column;gap:10px;padding-top:12px}
+.admin-form label{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--muted)}
+.admin-form .admin-remember{flex-direction:row;align-items:center;gap:6px}
+.admin-input{background:var(--surface-2);border:1px solid var(--border);border-radius:6px;padding:6px 8px;font-size:13px;color:var(--text)}
+.admin-input:focus{outline:none;border-color:var(--accent)}
+.admin-hint{font-size:11.5px;color:var(--muted)}
+.admin-error{font-size:11.5px;color:var(--err-fg);min-height:1em}
+.admin-form .config-save-btn{align-self:flex-end}
 .modal-close{margin-left:auto;background:none;border:none;color:var(--muted);font-size:18px;cursor:pointer;line-height:1}
 .modal-close:hover{color:var(--text)}
 

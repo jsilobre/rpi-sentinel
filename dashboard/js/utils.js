@@ -62,3 +62,26 @@ function snapshotToEvents(data, clearedAtMs, max) {
     .filter(a => !clearedAtMs || new Date(a.timestamp).getTime() >= clearedAtMs)
     .slice(0, max);
 }
+
+// Admin MQTT credentials saved by the login modal, from the first storage that
+// holds a valid pair (sessionStorage, then localStorage). Anything missing,
+// empty or malformed yields null, i.e. viewer mode.
+function loadAdminCreds(storages) {
+  for (const st of storages) {
+    try {
+      const c = JSON.parse(st.getItem(ADMIN_CREDS_KEY));
+      if (c && typeof c.username === 'string' && typeof c.password === 'string'
+          && c.username && c.password) {
+        return { username: c.username, password: c.password };
+      }
+    } catch { /* unreadable storage or bad JSON: try the next one */ }
+  }
+  return null;
+}
+
+// Which credentials to connect with, and whether this session may publish.
+function mqttCredentials(admin, viewerUser, viewerPass) {
+  return admin
+    ? { username: admin.username, password: admin.password, canPublish: true }
+    : { username: viewerUser,     password: viewerPass,     canPublish: false };
+}
