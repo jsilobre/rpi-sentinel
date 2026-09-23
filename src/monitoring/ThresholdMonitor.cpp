@@ -63,32 +63,34 @@ void ThresholdMonitor::run(std::stop_token stop)
             // Evaluate thresholds first so the Reading event can carry the
             // resulting level; transitions are dispatched after the reading.
             std::vector<SensorEvent> transitions;
-            auto transition = [&](SensorEvent::Type type, float threshold) {
+            auto transition = [&](SensorEvent::Type type, SensorEvent::Level level,
+                                  float threshold) {
                 transitions.push_back(SensorEvent{
                     .type      = type,
                     .metric    = result->metric,
                     .value     = temp,
                     .threshold = threshold,
                     .sensor_id = result->sensor_id,
+                    .level     = level,
                 });
             };
 
             // Critical threshold (highest priority)
             if (!crit_active_ && temp >= thr_crit) {
                 crit_active_ = true;
-                transition(SensorEvent::Type::ThresholdExceeded, thr_crit);
+                transition(SensorEvent::Type::ThresholdExceeded, SensorEvent::Level::Crit, thr_crit);
             } else if (crit_active_ && temp < thr_crit - config_.hysteresis) {
                 crit_active_ = false;
-                transition(SensorEvent::Type::ThresholdRecovered, thr_crit);
+                transition(SensorEvent::Type::ThresholdRecovered, SensorEvent::Level::Crit, thr_crit);
             }
 
             // Warning threshold
             if (!warn_active_ && temp >= thr_warn && !crit_active_) {
                 warn_active_ = true;
-                transition(SensorEvent::Type::ThresholdExceeded, thr_warn);
+                transition(SensorEvent::Type::ThresholdExceeded, SensorEvent::Level::Warn, thr_warn);
             } else if (warn_active_ && temp < thr_warn - config_.hysteresis) {
                 warn_active_ = false;
-                transition(SensorEvent::Type::ThresholdRecovered, thr_warn);
+                transition(SensorEvent::Type::ThresholdRecovered, SensorEvent::Level::Warn, thr_warn);
             }
 
             bus_.dispatch(SensorEvent{

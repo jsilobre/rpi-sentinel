@@ -373,12 +373,13 @@ void MqttPublisher::on_event(const SensorEvent& event)
 
     const std::string ts = format_iso8601(event.timestamp);
 
+    const std::string_view level_str =
+        event.level == SensorEvent::Level::Crit ? "crit"
+      : event.level == SensorEvent::Level::Warn ? "warn"
+                                                : "ok";
+
     if (event.type == SensorEvent::Type::Reading) {
         topic  = std::format("{}/{}/reading", config_.topic_prefix, event.sensor_id);
-        const std::string_view level_str =
-            event.level == SensorEvent::Level::Crit ? "crit"
-          : event.level == SensorEvent::Level::Warn ? "warn"
-                                                    : "ok";
         payload = std::format(
             "{{\"value\":{:.2f},\"metric\":\"{}\",\"level\":\"{}\",\"timestamp\":\"{}\"}}",
             event.value, event.metric, level_str, ts);
@@ -388,9 +389,9 @@ void MqttPublisher::on_event(const SensorEvent& event)
             (event.type == SensorEvent::Type::ThresholdExceeded) ? "EXCEEDED" : "RECOVERED";
         topic  = std::format("{}/{}/alert", config_.topic_prefix, event.sensor_id);
         payload = std::format(
-            "{{\"type\":\"{}\",\"value\":{:.2f},\"threshold\":{:.2f},"
+            "{{\"type\":\"{}\",\"level\":\"{}\",\"value\":{:.2f},\"threshold\":{:.2f},"
             "\"metric\":\"{}\",\"timestamp\":\"{}\"}}",
-            type_str, event.value, event.threshold, event.metric, ts);
+            type_str, level_str, event.value, event.threshold, event.metric, ts);
     }
 
     enqueue_publish(std::move(topic), std::move(payload), retain);

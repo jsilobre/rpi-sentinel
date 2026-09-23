@@ -130,3 +130,42 @@ TEST(ThresholdMonitor, ReadingCarriesCurrentLevel)
     ASSERT_FALSE(ok.empty());
     for (const auto& r : ok) EXPECT_EQ(r.level, SensorEvent::Level::Ok);
 }
+
+TEST(ThresholdMonitor, TransitionCarriesCrossedThresholdLevel)
+{
+    // The alert event says which threshold was crossed, so the dashboard's
+    // timeline can tell a warning from a critical alert.
+    auto first_transition = [](float value) {
+        SimulatedSensor sensor("test", "tvoc", [value]() { return value; });
+
+        EventBus bus;
+        auto handler = std::make_shared<CapturingHandler>();
+        bus.register_handler(handler);
+
+        MonitorConfig cfg{
+            .threshold_warn = 50.0f,
+            .threshold_crit = 65.0f,
+            .hysteresis     = 2.0f,
+            .poll_interval  = std::chrono::milliseconds{50},
+        };
+
+        ThresholdMonitor monitor(sensor, bus, cfg);
+        monitor.start();
+        std::this_thread::sleep_for(std::chrono::milliseconds{120});
+        monitor.stop();
+
+        std::lock_guard lock(handler->mutex_);
+        EXPECT_EQ(handler->events.size(), 1u);  // one-shot, not repeated each poll
+        return handler->events.empty() ? SensorEvent{} : handler->events[0];
+    };
+
+    const auto crit = first_transition(75.0f);
+    EXPECT_EQ(crit.type, SensorEvent::Type::ThresholdExceeded);
+    EXPECT_EQ(crit.level, SensorEvent::Level::Crit);
+    EXPECT_FLOAT_EQ(crit.threshold, 65.0f);
+
+    const auto warn = first_transition(55.0f);
+    EXPECT_EQ(warn.type, SensorEvent::Type::ThresholdExceeded);
+    EXPECT_EQ(warn.level, SensorEvent::Level::Warn);
+    EXPECT_FLOAT_EQ(warn.threshold, 50.0f);
+}
