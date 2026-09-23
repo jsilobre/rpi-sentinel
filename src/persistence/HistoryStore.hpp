@@ -19,6 +19,17 @@ struct StoredPoint {
     float   value;
 };
 
+// One threshold transition, as stored in the `alerts` table.
+struct StoredAlert {
+    int64_t     ts_ms;
+    std::string sensor_id;
+    std::string metric;
+    std::string type;       // "EXCEEDED" | "RECOVERED"
+    std::string level;      // "warn" | "crit" — which threshold was crossed
+    float       value;
+    float       threshold;
+};
+
 class HistoryStore {
 public:
     HistoryStore(std::filesystem::path db_path,
@@ -39,12 +50,17 @@ public:
     std::vector<StoredPoint> since(std::string_view sensor_id,
                                    int64_t since_ts_ms, int limit) const;
 
+    void insert_alert(const StoredAlert& alert);
+
+    // Returns up to `limit` most recent alerts across all sensors, newest first.
+    std::vector<StoredAlert> recent_alerts(int limit) const;
+
     std::optional<std::string> metric_for(std::string_view sensor_id) const;
 
     // Drops rows older than retention and trims per-sensor row count.
     void rotate();
 
-    // Deletes all rows from the database.
+    // Deletes all rows (readings and alerts) from the database.
     void clear_all();
 
 private:
@@ -62,6 +78,7 @@ private:
     mutable std::mutex mutex_;
     sqlite3*           db_              = nullptr;
     sqlite3_stmt*      ins_stmt_        = nullptr;
+    sqlite3_stmt*      ins_alert_stmt_  = nullptr;
     int64_t            inserts_since_rotate_ = 0;
 };
 

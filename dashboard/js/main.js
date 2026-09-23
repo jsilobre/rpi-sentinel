@@ -249,6 +249,7 @@ client.on('connect', () => {
   client.subscribe([
     `${TOPIC_PREFIX}/+/reading`,
     `${TOPIC_PREFIX}/+/alert`,
+    `${TOPIC_PREFIX}/alerts/recent`,
     `${TOPIC_PREFIX}/status`,
     `${TOPIC_PREFIX}/config/current`,
     `${TOPIC_PREFIX}/history/resp/+`,
@@ -307,6 +308,13 @@ client.on('message', (topic, message) => {
     delete pendingHydrations[reqId];
     pendingHydrationSet.delete(sensorId);
     if (Array.isArray(data.points)) applyHydration(sensorId, data.points);
+    return;
+  }
+
+  // Must be routed before the generic <prefix>/<sensor>/<kind> split below,
+  // which would read it as sensor "alerts", kind "recent".
+  if (topic === `${TOPIC_PREFIX}/alerts/recent`) {
+    handleAlertsSnapshot(data);
     return;
   }
 

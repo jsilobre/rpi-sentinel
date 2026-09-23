@@ -14,14 +14,9 @@ void LogAlert::on_event(const SensorEvent& event)
     char time_buf[32];
     std::strftime(time_buf, sizeof(time_buf), "%Y-%m-%d %H:%M:%S", std::localtime(&time_t));
 
-    std::string_view label = (event.type == SensorEvent::Type::ThresholdExceeded)
-        ? "EXCEEDED"
-        : "RECOVERED";
-
-    std::string_view level = (event.level == SensorEvent::Level::Crit) ? "crit" : "warn";
-
     std::println("[{}] [{}] [{}] sensor={} {}={:.1f} threshold={:.1f}",
-        time_buf, label, level, event.sensor_id, event.metric, event.value, event.threshold);
+        time_buf, alert_type_string(event.type), to_string(event.level),
+        event.sensor_id, event.metric, event.value, event.threshold);
 }
 
 } // namespace rpi

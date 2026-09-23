@@ -51,3 +51,14 @@ function statusBadge(level) {
     default:     return null;
   }
 }
+
+// Turn a retained <prefix>/alerts/recent snapshot into timeline entries
+// (newest first), dropping anything from before a local "Clear Data".
+// Invalid payloads yield an empty list.
+function snapshotToEvents(data, clearedAtMs, max) {
+  const list = data && Array.isArray(data.alerts) ? data.alerts : [];
+  return list
+    .filter(a => a && typeof a.sensor_id === 'string')
+    .filter(a => !clearedAtMs || new Date(a.timestamp).getTime() >= clearedAtMs)
+    .slice(0, max);
+}

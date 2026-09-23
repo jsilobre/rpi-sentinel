@@ -78,7 +78,7 @@ function loadHelpers() {
   const files = ['js/state.js', 'js/utils.js', 'js/layout.js', 'js/combined.js'];
   const epilogue = `
     globalThis.__T__ = {
-      domId, escapeHtml, fmt, newRequestId, statusBadge,
+      domId, escapeHtml, fmt, newRequestId, statusBadge, snapshotToEvents,
       unitFor, axisTitle, gridColumns, positionCardInGrid,
       setWindow: (w) => { currentWindow = w; },
       WINDOWS,
@@ -195,4 +195,29 @@ test('statusBadge maps the daemon-provided level to the card badge', () => {
   // Older daemons send no level: the caller must leave the badge alone.
   assert.equal(H.statusBadge(undefined), null);
   assert.equal(H.statusBadge('bogus'), null);
+});
+
+test('snapshotToEvents keeps the retained alert list, newest first', () => {
+  const alerts = [
+    { sensor_id: 'sgp30-tvoc', type: 'EXCEEDED', level: 'warn', timestamp: '2026-09-23T09:45:46Z' },
+    { sensor_id: 'dht11-temp', type: 'EXCEEDED', level: 'crit', timestamp: '2026-09-23T09:40:00Z' },
+    { sensor_id: 'cpu-temp',   type: 'RECOVERED', level: 'warn', timestamp: '2026-09-23T09:30:00Z' },
+  ];
+  const out = H.snapshotToEvents({ alerts }, 0, 50);
+  assert.deepEqual(out.map(e => e.sensor_id), ['sgp30-tvoc', 'dht11-temp', 'cpu-temp']);
+
+  // Truncated to the timeline size.
+  assert.equal(H.snapshotToEvents({ alerts }, 0, 2).length, 2);
+
+  // Entries older than a local "Clear Data" are dropped.
+  const clearedAt = Date.parse('2026-09-23T09:35:00Z');
+  assert.deepEqual(H.snapshotToEvents({ alerts }, clearedAt, 50).map(e => e.sensor_id),
+    ['sgp30-tvoc', 'dht11-temp']);
+});
+
+test('snapshotToEvents tolerates malformed payloads', () => {
+  assert.equal(H.snapshotToEvents({}, 0, 50).length, 0);
+  assert.equal(H.snapshotToEvents({ alerts: 'nope' }, 0, 50).length, 0);
+  assert.equal(H.snapshotToEvents(null, 0, 50).length, 0);
+  assert.equal(H.snapshotToEvents({ alerts: [null, { foo: 1 }] }, 0, 50).length, 0);
 });
