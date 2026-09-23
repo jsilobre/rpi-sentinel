@@ -198,6 +198,8 @@ void MqttPublisher::handle_connect(int rc)
     mosquitto_subscribe(mosq_, nullptr, status_topic_.c_str(), /*qos=*/1);
     mosquitto_subscribe(mosq_, nullptr, cmd_refresh_topic_.c_str(), /*qos=*/1);
     mosquitto_subscribe(mosq_, nullptr, cmd_clear_topic_.c_str(),   /*qos=*/1);
+    for (const auto& msg : ha_discovery_)
+        publish(msg.topic, msg.payload, /*retain=*/true);
     publish(status_topic_, R"({"status":"online"})", /*retain=*/true);
     publish(alerts_topic_, alerts_snapshot(), /*retain=*/true);
     std::println("[MqttPublisher] Connected and online");
@@ -221,6 +223,11 @@ void MqttPublisher::set_data_clearer(DataClearer cb)
 void MqttPublisher::set_history_store(std::shared_ptr<HistoryStore> store)
 {
     history_store_ = std::move(store);
+}
+
+void MqttPublisher::set_ha_discovery(std::vector<DiscoveryMessage> messages)
+{
+    ha_discovery_ = std::move(messages);
 }
 
 void MqttPublisher::publish_config(const std::string& config_json)

@@ -190,3 +190,43 @@ TEST(ConfigLoader, OtlpRejectsNonPositiveExportInterval)
     auto result = rpi::load_config(path);
     EXPECT_FALSE(result.has_value());
 }
+
+TEST(ConfigLoader, HomeAssistantDiscoveryDefaultsOff)
+{
+    auto path = write_tmp(R"({
+        "sensors": [{"id": "s0", "type": "simulated", "threshold_warn": 50.0, "threshold_crit": 80.0}],
+        "mqtt": {"enabled": true}
+    })");
+    auto result = rpi::load_config(path);
+    ASSERT_TRUE(result.has_value()) << result.error();
+    EXPECT_FALSE(result->mqtt.homeassistant.enabled);
+    EXPECT_EQ(result->mqtt.homeassistant.discovery_prefix, "homeassistant");
+}
+
+TEST(ConfigLoader, HomeAssistantDiscoveryParsedAndSaved)
+{
+    auto path = write_tmp(R"({
+        "sensors": [{"id": "s0", "type": "simulated", "threshold_warn": 50.0, "threshold_crit": 80.0}],
+        "mqtt": {"enabled": true, "homeassistant": {"enabled": true, "discovery_prefix": "ha"}}
+    })");
+    auto result = rpi::load_config(path);
+    ASSERT_TRUE(result.has_value()) << result.error();
+    EXPECT_TRUE(result->mqtt.homeassistant.enabled);
+    EXPECT_EQ(result->mqtt.homeassistant.discovery_prefix, "ha");
+
+    // Survives the save that follows a threshold change from the dashboard.
+    ASSERT_TRUE(rpi::save_config(path, *result).has_value());
+    auto reloaded = rpi::load_config(path);
+    ASSERT_TRUE(reloaded.has_value()) << reloaded.error();
+    EXPECT_TRUE(reloaded->mqtt.homeassistant.enabled);
+    EXPECT_EQ(reloaded->mqtt.homeassistant.discovery_prefix, "ha");
+}
+
+TEST(ConfigLoader, ErrorOnEmptyHomeAssistantDiscoveryPrefix)
+{
+    auto path = write_tmp(R"({
+        "sensors": [{"id": "s0", "type": "simulated", "threshold_warn": 50.0, "threshold_crit": 80.0}],
+        "mqtt": {"homeassistant": {"enabled": true, "discovery_prefix": ""}}
+    })");
+    EXPECT_FALSE(rpi::load_config(path).has_value());
+}

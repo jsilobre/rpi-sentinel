@@ -10,7 +10,13 @@
         "broker_url": "ssl://YOUR_CLUSTER.hivemq.cloud:8883",
         "username": "YOUR_PUBLISHER_USER",
         "password": "YOUR_PUBLISHER_PASSWORD",
-        "topic_prefix": "rpi"
+        "topic_prefix": "rpi",
+        // Home Assistant MQTT discovery: announces every sensor (retained, on
+        // connect) so HA creates the entities by itself. See homeassistant/.
+        "homeassistant": {
+            "enabled": false,
+            "discovery_prefix": "homeassistant"
+        }
     },
     // Persistent reading history (SQLite). Survives daemon restarts and
     // serves the dashboard hydration via MQTT history-on-demand.

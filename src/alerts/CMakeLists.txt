@@ -1,5 +1,6 @@
 add_library(alerts STATIC
     GpioAlert.cpp
+    HaDiscovery.cpp
     LogAlert.cpp
 )
 

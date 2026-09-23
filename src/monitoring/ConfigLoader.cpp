@@ -77,6 +77,13 @@ auto load_config(const std::filesystem::path& path) -> std::expected<Config, std
             if (m.contains("username"))     cfg.mqtt.username     = m["username"].get<std::string>();
             if (m.contains("password"))     cfg.mqtt.password     = m["password"].get<std::string>();
             if (m.contains("topic_prefix")) cfg.mqtt.topic_prefix = m["topic_prefix"].get<std::string>();
+            if (m.contains("homeassistant") && m["homeassistant"].is_object()) {
+                const auto& ha = m["homeassistant"];
+                if (ha.contains("enabled"))
+                    cfg.mqtt.homeassistant.enabled = ha["enabled"].get<bool>();
+                if (ha.contains("discovery_prefix"))
+                    cfg.mqtt.homeassistant.discovery_prefix = ha["discovery_prefix"].get<std::string>();
+            }
         }
 
         if (j.contains("history") && j["history"].is_object()) {
@@ -123,6 +130,8 @@ auto load_config(const std::filesystem::path& path) -> std::expected<Config, std
             return std::unexpected("history.retention_days must be >= 1");
         if (cfg.history.max_points_per_sensor < 1)
             return std::unexpected("history.max_points_per_sensor must be >= 1");
+        if (cfg.mqtt.homeassistant.enabled && cfg.mqtt.homeassistant.discovery_prefix.empty())
+            return std::unexpected("mqtt.homeassistant.enabled=true but discovery_prefix is empty");
         if (cfg.otlp.enabled && cfg.otlp.endpoint.empty())
             return std::unexpected("otlp.enabled=true but otlp.endpoint is empty");
         if (cfg.otlp.export_interval_ms <= 0)
@@ -159,6 +168,10 @@ auto save_config(const std::filesystem::path& path, const Config& config) -> std
         {"username",     config.mqtt.username},
         {"password",     config.mqtt.password},
         {"topic_prefix", config.mqtt.topic_prefix},
+        {"homeassistant", {
+            {"enabled",          config.mqtt.homeassistant.enabled},
+            {"discovery_prefix", config.mqtt.homeassistant.discovery_prefix},
+        }},
     };
     j["history"] = {
         {"enabled",               config.history.enabled},

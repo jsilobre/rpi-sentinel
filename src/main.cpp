@@ -80,6 +80,11 @@ int main(int argc, char* argv[])
         try {
             mqtt_pub = std::make_shared<rpi::MqttPublisher>(result->mqtt);
             if (history_store) mqtt_pub->set_history_store(history_store);
+            if (result->mqtt.homeassistant.enabled) {
+                mqtt_pub->set_ha_discovery(rpi::build_ha_discovery(result->mqtt, result->sensors));
+                std::println("[main] Home Assistant discovery enabled (prefix '{}').",
+                             result->mqtt.homeassistant.discovery_prefix);
+            }
             mqtt_pub->connect();
             bus.register_handler(mqtt_pub);
         } catch (const std::exception& e) {

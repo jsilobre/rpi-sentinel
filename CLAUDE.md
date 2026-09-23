@@ -17,6 +17,7 @@ Detailed technical references live in `docs/`:
 | `docs/build-guide.md` | CMake dependency graph, cross-compilation, RPi hardware setup, adding a test |
 | `docs/persistence.md` | SQLite schema & PRAGMAs, rotation policy, MQTT history-on-demand protocol, failure modes |
 | `docs/cloudflare-setup.md` | Cloudflare Worker + D1 setup, deployment, RPi daemon configuration, end-to-end test |
+| `homeassistant/README.md` | Home Assistant + Mosquitto (Docker) bridged to HiveMQ; MQTT discovery entities |
 
 ## Build Commands
 
@@ -157,6 +158,8 @@ Copy `config.example.json` to `config.json`. Key fields:
 ```
 
 Sensor `type` values: `simulated`, `ds18b20`, `dht11`, `cpu_temp`, `sgp30`. DS18B20 requires `device_path` pointing to `/sys/bus/w1/devices/<id>/temperature`. The `data/` directory is created automatically at runtime.
+
+`mqtt.homeassistant.enabled` makes `MqttPublisher` publish retained Home Assistant discovery configs (built by `build_ha_discovery()` in `src/alerts/HaDiscovery.cpp`) on every connect: one measurement entity and one `level` enum entity per sensor, plus a refresh button. It only points HA at the existing topics; the MQTT contract is unchanged. Deployment lives in `homeassistant/`.
 
 `cloud_storage.api_key_env` names an environment variable holding the Bearer token that authenticates POST requests to the Worker. Never put the key literal in `config.json` — use the env var. See `docs/cloudflare-setup.md`.
 

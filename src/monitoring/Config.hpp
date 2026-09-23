@@ -23,12 +23,18 @@ struct SensorConfig {
     float       threshold_crit = 80.0f;
 };
 
+struct HomeAssistantConfig {
+    bool        enabled          = false;
+    std::string discovery_prefix = "homeassistant";  // HA MQTT integration default
+};
+
 struct MqttConfig {
-    bool        enabled      = false;
-    std::string broker_url;               // e.g. "ssl://xxx.hivemq.cloud:8883"
-    std::string username;
-    std::string password;
-    std::string topic_prefix = "rpi";
+    bool                enabled      = false;
+    std::string         broker_url;               // e.g. "ssl://xxx.hivemq.cloud:8883"
+    std::string         username;
+    std::string         password;
+    std::string         topic_prefix = "rpi";
+    HomeAssistantConfig homeassistant;            // MQTT discovery, published on connect
 };
 
 struct HistoryConfig {
