@@ -4,7 +4,9 @@
 
 #include "IAlertHandler.hpp"
 #include "../monitoring/Config.hpp"
+#include "../persistence/HistoryStore.hpp"  // StoredAlert (std::deque needs a complete type)
 #include <condition_variable>
+#include <deque>
 #include <expected>
 #include <functional>
 #include <memory>
@@ -18,7 +20,6 @@ struct mosquitto_message;
 
 namespace rpi {
 
-class HistoryStore;
 
 class MqttPublisher final : public IAlertHandler {
 public:
@@ -45,6 +46,13 @@ public:
     // Returns empty string if the request is malformed.
     std::string build_history_response(const std::string& request_payload) const;
 
+    // Exposed for tests: JSON body of the retained <prefix>/alerts/recent
+    // snapshot, `alerts` newest first.
+    static std::string build_alerts_snapshot(const std::deque<StoredAlert>& alerts);
+
+    // Size of that snapshot; matches the dashboard's MAX_EVENTS.
+    static constexpr std::size_t RECENT_ALERTS_MAX = 50;
+
 private:
     static void on_connect_cb(struct mosquitto*, void* userdata, int rc);
     static void on_message_cb(struct mosquitto*, void* userdata,
@@ -55,6 +63,7 @@ private:
     void publish(const std::string& topic, const std::string& payload, bool retain);
     void enqueue_publish(std::string topic, std::string payload, bool retain);
     void run_publisher(std::stop_token stop);
+    std::string alerts_snapshot();  // locks alerts_mu_
 
     struct PublishItem {
         std::string topic;
@@ -75,6 +84,13 @@ private:
     std::string                   history_resp_prefix_;
     std::string                   cmd_refresh_topic_;
     std::string                   cmd_clear_topic_;
+    std::string                   alerts_topic_;
+
+    // Most recent alerts, newest first. Seeded from the history store at
+    // connect() and republished retained on every change, so a dashboard
+    // opened later still sees the alert timeline.
+    std::deque<StoredAlert>       recent_alerts_;
+    std::mutex                    alerts_mu_;
 
     std::queue<PublishItem>       pub_queue_;
     std::mutex                    pub_mu_;

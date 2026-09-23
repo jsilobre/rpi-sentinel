@@ -83,6 +83,16 @@ function handleAlert(sensorId, data) {
   renderEvents();
 }
 
+// The daemon republishes the full recent-alerts list (retained) on connect
+// and after every alert, so it replaces the timeline wholesale; that also
+// de-duplicates the individual alert that handleAlert just prepended.
+function handleAlertsSnapshot(data) {
+  const next = snapshotToEvents(data, clearedAt, MAX_EVENTS);
+  events.length = 0;
+  events.push(...next);
+  renderEvents();
+}
+
 function renderEvents() {
   const ul = document.getElementById('events');
   document.getElementById('alert-count').textContent = events.length;

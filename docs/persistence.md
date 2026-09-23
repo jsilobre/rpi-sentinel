@@ -30,8 +30,24 @@ CREATE TABLE IF NOT EXISTS readings(
 );
 CREATE INDEX IF NOT EXISTS idx_readings_sensor_ts
     ON readings(sensor_id, ts DESC);
-PRAGMA user_version = 1;
+
+-- v2: threshold transitions (ThresholdExceeded / ThresholdRecovered)
+CREATE TABLE IF NOT EXISTS alerts(
+    sensor_id TEXT    NOT NULL,
+    ts        INTEGER NOT NULL,   -- epoch milliseconds
+    type      TEXT    NOT NULL,   -- 'EXCEEDED' | 'RECOVERED'
+    level     TEXT    NOT NULL,   -- 'warn' | 'crit': which threshold was crossed
+    value     REAL    NOT NULL,
+    threshold REAL    NOT NULL,
+    metric    TEXT    NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_alerts_ts ON alerts(ts DESC);
+PRAGMA user_version = 2;
 ```
+
+Opening a v1 database (readings only) is an in-place upgrade: the `IF NOT
+EXISTS` statements just add the `alerts` table. The alert log feeds the
+dashboard's alert timeline — see [§3b](#3b-alert-timeline-snapshot).
 
 A single table keeps queries simple, lets rotation operate centrally, and
 trivially supports a dynamic set of sensors. JSON-blob storage was rejected
@@ -69,6 +85,9 @@ The directory is created automatically. Override via `config.json`:
 1. By age — `DELETE FROM readings WHERE ts < now − retention_days`.
 2. By count — for each sensor, keep only the latest
    `max_points_per_sensor` rows.
+
+The `alerts` table is pruned by age only (same `retention_days`); alerts are
+rare enough not to need a count cap.
 
 Rotation is amortised: it triggers automatically every 200 inserts (no
 `VACUUM` on the hot path). At a 5 s polling interval that's roughly every
@@ -178,6 +197,41 @@ Without these, hydration requests will be silently dropped by the broker.
 
 ---
 
+## 3b. Alert timeline snapshot
+
+Individual alerts (`rpi/<sensor>/alert`) are one-shot and not retained, so a
+dashboard opened later would miss them. The daemon therefore also publishes a
+**retained** snapshot of the most recent alerts:
+
+| Topic | Direction | Retain | QoS |
+|---|---|---|---|
+| `rpi/alerts/recent` | daemon → dashboard | `true` | 1 |
+
+```json
+{"alerts": [
+  {"sensor_id": "sgp30-tvoc", "type": "EXCEEDED", "level": "warn",
+   "value": 150.0, "threshold": 150.0, "metric": "tvoc",
+   "timestamp": "2026-09-23T09:45:46Z"}
+]}
+```
+
+- Newest first, at most 50 entries (the dashboard's `MAX_EVENTS`).
+- `MqttPublisher` keeps the list in memory, seeds it from the `alerts` table
+  at startup, and republishes it on connect and after every alert. With
+  `history.enabled = false` it still works but starts empty after a restart.
+- **Clear Data** (`rpi/cmd/clear`) empties the table and publishes
+  `{"alerts": []}`.
+- The dashboard replaces its timeline with each snapshot; the retained copy
+  keeps the timeline available even while the Pi is offline.
+- A daemon restart re-evaluates every sensor from scratch, so an alert that
+  was already active is logged again as a fresh `EXCEEDED`.
+
+**Broker ACL:** the dashboard user needs `subscribe` on `rpi/alerts/recent`
+and the daemon user `publish` on it — the topic doesn't match the
+`rpi/+/reading` / `rpi/+/alert` patterns.
+
+---
+
 ## 4. Cloud storage — Cloudflare Worker + D1
 
 `CloudStorageHandler` ships every `Reading` event to a Cloudflare Worker via HTTP POST. The schema mirrors the local SQLite table exactly.
@@ -248,6 +302,7 @@ See [cloudflare-setup.md](cloudflare-setup.md) for full deployment instructions.
 - Inspect:
   ```bash
   sqlite3 data/history.db "SELECT sensor_id, COUNT(*), MAX(ts) FROM readings GROUP BY sensor_id;"
+  sqlite3 data/history.db "SELECT datetime(ts/1000,'unixepoch'), sensor_id, type, level, value FROM alerts ORDER BY ts DESC LIMIT 20;"
   ```
 - Disk footprint: roughly **30 B/row** in SQLite (vs ~50 B for the JSON
   serialization). At a 5 s poll, 6 sensors and a 7-day retention that's

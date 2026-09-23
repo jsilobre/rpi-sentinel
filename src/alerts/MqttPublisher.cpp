@@ -147,6 +147,13 @@ void MqttPublisher::connect()
     history_resp_prefix_  = config_.topic_prefix + "/history/resp/";
     cmd_refresh_topic_    = config_.topic_prefix + "/cmd/refresh";
     cmd_clear_topic_      = config_.topic_prefix + "/cmd/clear";
+    alerts_topic_         = config_.topic_prefix + "/alerts/recent";
+
+    if (history_store_) {
+        const auto stored = history_store_->recent_alerts(static_cast<int>(RECENT_ALERTS_MAX));
+        std::lock_guard lk{alerts_mu_};
+        recent_alerts_.assign(stored.begin(), stored.end());
+    }
 
     mosquitto_loop_start(mosq_);
     pub_worker_ = std::jthread{[this](std::stop_token st) { run_publisher(std::move(st)); }};
@@ -191,6 +198,7 @@ void MqttPublisher::handle_connect(int rc)
     mosquitto_subscribe(mosq_, nullptr, cmd_refresh_topic_.c_str(), /*qos=*/1);
     mosquitto_subscribe(mosq_, nullptr, cmd_clear_topic_.c_str(),   /*qos=*/1);
     publish(status_topic_, R"({"status":"online"})", /*retain=*/true);
+    publish(alerts_topic_, alerts_snapshot(), /*retain=*/true);
     std::println("[MqttPublisher] Connected and online");
 }
 
@@ -257,6 +265,11 @@ void MqttPublisher::handle_message(const struct mosquitto_message* msg)
     if (topic == cmd_clear_topic_) {
         std::println("[MqttPublisher] Clear-history requested via MQTT");
         if (data_clearer_) data_clearer_();
+        {
+            std::lock_guard lk{alerts_mu_};
+            recent_alerts_.clear();
+        }
+        publish(alerts_topic_, alerts_snapshot(), /*retain=*/true);
         return;
     }
 
@@ -373,10 +386,7 @@ void MqttPublisher::on_event(const SensorEvent& event)
 
     const std::string ts = format_iso8601(event.timestamp);
 
-    const std::string_view level_str =
-        event.level == SensorEvent::Level::Crit ? "crit"
-      : event.level == SensorEvent::Level::Warn ? "warn"
-                                                : "ok";
+    const std::string_view level_str = to_string(event.level);
 
     if (event.type == SensorEvent::Type::Reading) {
         topic  = std::format("{}/{}/reading", config_.topic_prefix, event.sensor_id);
@@ -385,16 +395,61 @@ void MqttPublisher::on_event(const SensorEvent& event)
             event.value, event.metric, level_str, ts);
         retain = true;
     } else {
-        std::string_view type_str =
-            (event.type == SensorEvent::Type::ThresholdExceeded) ? "EXCEEDED" : "RECOVERED";
+        const std::string_view type_str = alert_type_string(event.type);
         topic  = std::format("{}/{}/alert", config_.topic_prefix, event.sensor_id);
         payload = std::format(
             "{{\"type\":\"{}\",\"level\":\"{}\",\"value\":{:.2f},\"threshold\":{:.2f},"
             "\"metric\":\"{}\",\"timestamp\":\"{}\"}}",
             type_str, level_str, event.value, event.threshold, event.metric, ts);
+
+        {
+            std::lock_guard lk{alerts_mu_};
+            recent_alerts_.push_front({
+                .ts_ms     = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                 event.timestamp.time_since_epoch()).count(),
+                .sensor_id = event.sensor_id,
+                .metric    = event.metric,
+                .type      = std::string(type_str),
+                .level     = std::string(level_str),
+                .value     = event.value,
+                .threshold = event.threshold,
+            });
+            if (recent_alerts_.size() > RECENT_ALERTS_MAX) recent_alerts_.pop_back();
+        }
+        // Individual alert first, then the snapshot that already includes it.
+        enqueue_publish(std::move(topic), std::move(payload), retain);
+        enqueue_publish(alerts_topic_, alerts_snapshot(), /*retain=*/true);
+        return;
     }
 
     enqueue_publish(std::move(topic), std::move(payload), retain);
+}
+
+std::string MqttPublisher::alerts_snapshot()
+{
+    std::lock_guard lk{alerts_mu_};
+    return build_alerts_snapshot(recent_alerts_);
+}
+
+std::string MqttPublisher::build_alerts_snapshot(const std::deque<StoredAlert>& alerts)
+{
+    // Two decimals, like the per-alert payload, without float noise (21.9 not 21.899999).
+    auto round2 = [](float v) { return std::round(static_cast<double>(v) * 100.0) / 100.0; };
+
+    nlohmann::json arr = nlohmann::json::array();
+    for (const auto& a : alerts) {
+        arr.push_back({
+            {"sensor_id", a.sensor_id},
+            {"type",      a.type},
+            {"level",     a.level},
+            {"value",     round2(a.value)},
+            {"threshold", round2(a.threshold)},
+            {"metric",    a.metric},
+            {"timestamp", format_iso8601(std::chrono::system_clock::time_point{
+                              std::chrono::milliseconds{a.ts_ms}})},
+        });
+    }
+    return nlohmann::json{{"alerts", std::move(arr)}}.dump();
 }
 
 void MqttPublisher::enqueue_publish(std::string topic, std::string payload, bool retain)

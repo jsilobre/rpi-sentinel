@@ -146,3 +146,36 @@ TEST_F(MqttHistoryResponderTest, MistypedFieldsDoNotThrow)
         EXPECT_FALSE(body.empty());
     });
 }
+
+TEST(MqttAlertsSnapshot, EmptyDequeGivesEmptyArray)
+{
+    EXPECT_EQ(MqttPublisher::build_alerts_snapshot({}), R"({"alerts":[]})");
+}
+
+TEST(MqttAlertsSnapshot, KeepsOrderAndSerialisesFields)
+{
+    std::deque<StoredAlert> alerts{
+        {.ts_ms = 1'758'620'746'000, .sensor_id = "sgp30-tvoc", .metric = "tvoc",
+         .type = "EXCEEDED", .level = "warn", .value = 150.0f, .threshold = 150.0f},
+        {.ts_ms = 1'758'620'700'000, .sensor_id = "dht11-temp", .metric = "temperature",
+         .type = "RECOVERED", .level = "crit", .value = 21.9f, .threshold = 21.5f},
+    };
+
+    auto j = nlohmann::json::parse(MqttPublisher::build_alerts_snapshot(alerts));
+    ASSERT_TRUE(j["alerts"].is_array());
+    ASSERT_EQ(j["alerts"].size(), 2u);
+
+    const auto& first = j["alerts"][0];   // order preserved: newest first
+    EXPECT_EQ(first["sensor_id"], "sgp30-tvoc");
+    EXPECT_EQ(first["type"],      "EXCEEDED");
+    EXPECT_EQ(first["level"],     "warn");
+    EXPECT_EQ(first["metric"],    "tvoc");
+    EXPECT_EQ(first["timestamp"], "2025-09-23T09:45:46Z");
+
+    const auto& second = j["alerts"][1];
+    EXPECT_EQ(second["sensor_id"], "dht11-temp");
+    EXPECT_EQ(second["type"],      "RECOVERED");
+    // Rounded to 2 decimals, without float noise.
+    EXPECT_EQ(second["value"].get<double>(),     21.9);
+    EXPECT_EQ(second["threshold"].get<double>(), 21.5);
+}

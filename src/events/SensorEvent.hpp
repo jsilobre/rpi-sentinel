@@ -2,6 +2,7 @@
 
 #include <chrono>
 #include <string>
+#include <string_view>
 
 namespace rpi {
 
@@ -30,5 +31,23 @@ struct SensorEvent {
     Level       level = Level::Ok;
     std::chrono::system_clock::time_point timestamp = std::chrono::system_clock::now();
 };
+
+// Wire/storage spellings shared by the MQTT payloads, the SQLite alert log
+// and the console log.
+constexpr std::string_view to_string(SensorEvent::Level level)
+{
+    switch (level) {
+        case SensorEvent::Level::Crit: return "crit";
+        case SensorEvent::Level::Warn: return "warn";
+        case SensorEvent::Level::Ok:   break;
+    }
+    return "ok";
+}
+
+// Alert transitions only; Reading has no alert type.
+constexpr std::string_view alert_type_string(SensorEvent::Type type)
+{
+    return type == SensorEvent::Type::ThresholdExceeded ? "EXCEEDED" : "RECOVERED";
+}
 
 } // namespace rpi

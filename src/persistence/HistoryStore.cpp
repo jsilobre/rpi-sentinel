@@ -75,6 +75,10 @@ void HistoryStore::close()
         sqlite3_finalize(ins_stmt_);
         ins_stmt_ = nullptr;
     }
+    if (ins_alert_stmt_) {
+        sqlite3_finalize(ins_alert_stmt_);
+        ins_alert_stmt_ = nullptr;
+    }
     if (db_) {
         sqlite3_close(db_);
         db_ = nullptr;
@@ -109,7 +113,20 @@ void HistoryStore::ensure_schema()
         ");"
         "CREATE INDEX IF NOT EXISTS idx_readings_sensor_ts"
         "  ON readings(sensor_id, ts DESC);"
-        "PRAGMA user_version = 1;";
+        // v2: threshold transitions, so the dashboard's alert timeline
+        // survives reloads and daemon restarts. IF NOT EXISTS makes opening
+        // a v1 database a no-op upgrade.
+        "CREATE TABLE IF NOT EXISTS alerts("
+        "  sensor_id TEXT    NOT NULL,"
+        "  ts        INTEGER NOT NULL,"
+        "  type      TEXT    NOT NULL,"
+        "  level     TEXT    NOT NULL,"
+        "  value     REAL    NOT NULL,"
+        "  threshold REAL    NOT NULL,"
+        "  metric    TEXT    NOT NULL"
+        ");"
+        "CREATE INDEX IF NOT EXISTS idx_alerts_ts ON alerts(ts DESC);"
+        "PRAGMA user_version = 2;";
     int rc = sqlite3_exec(db_, schema, nullptr, nullptr, &err);
     if (rc != SQLITE_OK) {
         const std::string msg = err ? err : "(unknown)";
@@ -124,6 +141,12 @@ void HistoryStore::prepare_statements()
         "INSERT INTO readings(sensor_id, ts, value, metric) VALUES(?, ?, ?, ?);",
         -1, &ins_stmt_, nullptr);
     check(rc, db_, "prepare insert");
+
+    rc = sqlite3_prepare_v2(db_,
+        "INSERT INTO alerts(sensor_id, ts, type, level, value, threshold, metric) "
+        "VALUES(?, ?, ?, ?, ?, ?, ?);",
+        -1, &ins_alert_stmt_, nullptr);
+    check(rc, db_, "prepare insert_alert");
 }
 
 void HistoryStore::insert(std::string_view sensor_id, std::string_view metric,
@@ -151,12 +174,69 @@ void HistoryStore::insert(std::string_view sensor_id, std::string_view metric,
     }
 }
 
+void HistoryStore::insert_alert(const StoredAlert& alert)
+{
+    std::lock_guard lock(mutex_);
+    if (!db_ || !ins_alert_stmt_) return;
+
+    auto bind_text = [this](int idx, const std::string& v) {
+        sqlite3_bind_text(ins_alert_stmt_, idx, v.data(), static_cast<int>(v.size()), SQLITE_TRANSIENT);
+    };
+    sqlite3_reset(ins_alert_stmt_);
+    sqlite3_clear_bindings(ins_alert_stmt_);
+    bind_text(1, alert.sensor_id);
+    sqlite3_bind_int64 (ins_alert_stmt_, 2, alert.ts_ms);
+    bind_text(3, alert.type);
+    bind_text(4, alert.level);
+    sqlite3_bind_double(ins_alert_stmt_, 5, static_cast<double>(alert.value));
+    sqlite3_bind_double(ins_alert_stmt_, 6, static_cast<double>(alert.threshold));
+    bind_text(7, alert.metric);
+
+    if (sqlite3_step(ins_alert_stmt_) != SQLITE_DONE)
+        std::println(stderr, "[HistoryStore] insert_alert failed: {}", sqlite3_errmsg(db_));
+}
+
+std::vector<StoredAlert> HistoryStore::recent_alerts(int limit) const
+{
+    std::lock_guard lock(mutex_);
+    std::vector<StoredAlert> out;
+    if (!db_ || limit <= 0) return out;
+
+    sqlite3_stmt* stmt = nullptr;
+    int rc = sqlite3_prepare_v2(db_,
+        "SELECT ts, sensor_id, metric, type, level, value, threshold FROM alerts "
+        "ORDER BY ts DESC, rowid DESC LIMIT ?;",
+        -1, &stmt, nullptr);
+    if (rc != SQLITE_OK) return out;
+
+    sqlite3_bind_int(stmt, 1, limit);
+
+    auto text = [stmt](int col) {
+        const auto* t = sqlite3_column_text(stmt, col);
+        return t ? std::string(reinterpret_cast<const char*>(t)) : std::string{};
+    };
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        out.push_back({
+            .ts_ms     = sqlite3_column_int64(stmt, 0),
+            .sensor_id = text(1),
+            .metric    = text(2),
+            .type      = text(3),
+            .level     = text(4),
+            .value     = static_cast<float>(sqlite3_column_double(stmt, 5)),
+            .threshold = static_cast<float>(sqlite3_column_double(stmt, 6)),
+        });
+    }
+    sqlite3_finalize(stmt);
+    return out;
+}
+
 void HistoryStore::rotate_unlocked()
 {
     const int64_t cutoff = now_ms() - static_cast<int64_t>(retention_days_) * 86'400'000LL;
     char* err = nullptr;
     sqlite3_exec(db_,
-        std::format("DELETE FROM readings WHERE ts < {};", cutoff).c_str(),
+        std::format("DELETE FROM readings WHERE ts < {};"
+                    "DELETE FROM alerts WHERE ts < {};", cutoff, cutoff).c_str(),
         nullptr, nullptr, &err);
     if (err) { sqlite3_free(err); err = nullptr; }
 
@@ -277,7 +357,7 @@ void HistoryStore::clear_all()
     std::lock_guard lock(mutex_);
     if (!db_) return;
     char* err = nullptr;
-    sqlite3_exec(db_, "DELETE FROM readings;", nullptr, nullptr, &err);
+    sqlite3_exec(db_, "DELETE FROM readings; DELETE FROM alerts;", nullptr, nullptr, &err);
     if (err) { sqlite3_free(err); }
     inserts_since_rotate_ = 0;
 }
