@@ -375,9 +375,13 @@ void MqttPublisher::on_event(const SensorEvent& event)
 
     if (event.type == SensorEvent::Type::Reading) {
         topic  = std::format("{}/{}/reading", config_.topic_prefix, event.sensor_id);
+        const std::string_view level_str =
+            event.level == SensorEvent::Level::Crit ? "crit"
+          : event.level == SensorEvent::Level::Warn ? "warn"
+                                                    : "ok";
         payload = std::format(
-            "{{\"value\":{:.2f},\"metric\":\"{}\",\"timestamp\":\"{}\"}}",
-            event.value, event.metric, ts);
+            "{{\"value\":{:.2f},\"metric\":\"{}\",\"level\":\"{}\",\"timestamp\":\"{}\"}}",
+            event.value, event.metric, level_str, ts);
         retain = true;
     } else {
         std::string_view type_str =

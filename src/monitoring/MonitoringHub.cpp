@@ -59,6 +59,9 @@ void MonitoringHub::update_thresholds(const std::string& sensor_id, float warn, 
     auto it = monitor_map_.find(sensor_id);
     if (it == monitor_map_.end()) return;
     it->second->update_thresholds(warn, crit);
+    // Re-evaluate now so the published level reflects the new thresholds
+    // without waiting for the next poll.
+    it->second->force_poll();
 
     std::lock_guard lock(config_mutex_);
     for (auto& sc : config_.sensors) {
@@ -88,7 +91,7 @@ std::string MonitoringHub::build_config_json() const
             {"threshold_crit", sc.threshold_crit},
         });
     }
-    return nlohmann::json{{"hysteresis", config_.hysteresis}, {"sensors", arr}}.dump();
+    return nlohmann::json{{"sensors", arr}}.dump();
 }
 
 void MonitoringHub::force_poll_all()

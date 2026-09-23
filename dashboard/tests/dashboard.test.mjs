@@ -78,7 +78,7 @@ function loadHelpers() {
   const files = ['js/state.js', 'js/utils.js', 'js/layout.js', 'js/combined.js'];
   const epilogue = `
     globalThis.__T__ = {
-      domId, escapeHtml, fmt, newRequestId, levelFor,
+      domId, escapeHtml, fmt, newRequestId, statusBadge,
       unitFor, axisTitle, gridColumns, positionCardInGrid,
       setWindow: (w) => { currentWindow = w; },
       WINDOWS,
@@ -188,27 +188,11 @@ test('WINDOWS separates rollup bucketing from cloud-only and label concerns', ()
   }
 });
 
-test('levelFor classifies a reading against warn/crit thresholds', () => {
-  const thr = { warn: 200, crit: 400 };
-  assert.equal(H.levelFor(150, thr), 'ok');
-  assert.equal(H.levelFor(200, thr), 'warn');   // >= is inclusive, like the daemon
-  assert.equal(H.levelFor(399, thr), 'warn');
-  assert.equal(H.levelFor(450, thr), 'crit');
-  // No thresholds known yet (config/current not received) -> neutral.
-  assert.equal(H.levelFor(450, undefined), 'ok');
-});
-
-test('levelFor is right on first sight, without having seen the alert event', () => {
-  // Regression guard: opening the dashboard while a sensor is already above its
-  // threshold must show the alert level straight away (prev level unknown).
-  assert.equal(H.levelFor(250, { warn: 200, crit: 400 }, undefined, 2), 'warn');
-});
-
-test('levelFor applies hysteresis before clearing a level', () => {
-  const thr = { warn: 30, crit: 40 };
-  assert.equal(H.levelFor(29, thr, 'warn', 2), 'warn');  // inside the band: stays raised
-  assert.equal(H.levelFor(27.9, thr, 'warn', 2), 'ok');  // below warn - h: clears
-  assert.equal(H.levelFor(39, thr, 'crit', 2), 'crit');
-  assert.equal(H.levelFor(37, thr, 'crit', 2), 'warn');  // crit clears, still >= warn
-  assert.equal(H.levelFor(29, thr, 'ok', 2), 'ok');      // hysteresis never raises a level
+test('statusBadge maps the daemon-provided level to the card badge', () => {
+  assert.deepEqual({ ...H.statusBadge('ok') },   { text: 'OK',   cls: 'ok' });
+  assert.deepEqual({ ...H.statusBadge('warn') }, { text: 'Warn', cls: 'warn' });
+  assert.deepEqual({ ...H.statusBadge('crit') }, { text: 'Crit', cls: 'alert' });
+  // Older daemons send no level: the caller must leave the badge alone.
+  assert.equal(H.statusBadge(undefined), null);
+  assert.equal(H.statusBadge('bogus'), null);
 });

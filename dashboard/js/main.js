@@ -312,7 +312,6 @@ client.on('message', (topic, message) => {
 
   if (topic === `${TOPIC_PREFIX}/config/current`) {
     const incoming = data.sensors ?? [];
-    if (Number.isFinite(data.hysteresis)) thresholdHysteresis = data.hysteresis;
 
     knownSensorIds.clear();
     incoming.forEach(s => {
@@ -330,7 +329,6 @@ client.on('message', (topic, message) => {
         pendingHydrationSet.delete(sensorId);
         delete sensorMetric[sensorId];
         delete sensorColor[sensorId];
-        delete sensorLevel[sensorId];
         combinedHidden.delete(sensorId);
         const cardEl = document.getElementById('card-' + domId(sensorId));
         if (cardEl) {
@@ -339,7 +337,6 @@ client.on('message', (topic, message) => {
         }
       } else {
         updateAnnotations(sensorId);
-        refreshStatus(sensorId);
       }
     }
     updateGridHeight();
