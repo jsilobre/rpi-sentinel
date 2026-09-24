@@ -40,6 +40,8 @@ header.topbar{position:sticky;top:0;z-index:10;display:flex;align-items:center;g
 .icon-btn:hover{color:var(--text);border-color:var(--muted-2)}
 .icon-btn.danger{color:var(--err-fg);border-color:var(--err-bg)}
 .icon-btn.danger:hover{background:var(--err-bg);border-color:var(--err-fg)}
+.icon-btn.small{padding:2px 8px;font-size:11px}
+.icon-btn.small:disabled{opacity:.5;cursor:default;pointer-events:none}
 .updated{font-size:11px;color:var(--muted-2);margin-right:4px}
 
 main{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:16px;padding:16px 20px;align-items:start}

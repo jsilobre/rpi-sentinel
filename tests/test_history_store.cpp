@@ -231,6 +231,16 @@ TEST_F(HistoryStoreTest, ClearAllRemovesAlerts)
     EXPECT_TRUE(store.recent_alerts(10).empty());
 }
 
+TEST_F(HistoryStoreTest, ClearAlertsKeepsReadings)
+{
+    HistoryStore store(path_, 7, 1000);
+    store.insert("s1", "temperature", 1.0f, clock_t_::now());
+    store.insert_alert(make_alert(ms(clock_t_::now()), "a", "crit", 1.0f));
+    store.clear_alerts();
+    EXPECT_EQ(store.recent("s1", 10).size(), 1u);
+    EXPECT_TRUE(store.recent_alerts(10).empty());
+}
+
 TEST_F(HistoryStoreTest, ReopenPreservesAlerts)
 {
     const int64_t t0 = ms(clock_t_::now());

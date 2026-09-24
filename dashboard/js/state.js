@@ -47,6 +47,7 @@ const pendingHydrationSet  = new Set(); // sensorIds with an in-flight initial h
 const pendingWindowHydrations = {}; // request_id → sensorId (window switch)
 const hydratedSensors      = new Set();
 let   clearedAt            = 0;   // epoch-ms; readings older than this are dropped
+let   alertsClearedAt      = 0;   // epoch-ms; alerts older than this are dropped
 const pendingSaves         = {};  // sensorId → { warn, crit, fb, sid, timer }
 const chartTimestamps      = {};  // sensorId → array of epoch-ms mirroring chart data (historical modes)
 const WINDOW_KEY           = 'rpi-sentinel-window';

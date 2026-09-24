@@ -63,6 +63,9 @@ public:
     // Deletes all rows (readings and alerts) from the database.
     void clear_all();
 
+    // Deletes only the alert timeline; readings are kept.
+    void clear_alerts();
+
 private:
     void open();
     void close();

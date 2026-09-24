@@ -87,7 +87,7 @@ function handleAlert(sensorId, data) {
 // and after every alert, so it replaces the timeline wholesale; that also
 // de-duplicates the individual alert that handleAlert just prepended.
 function handleAlertsSnapshot(data) {
-  const next = snapshotToEvents(data, clearedAt, MAX_EVENTS);
+  const next = snapshotToEvents(data, Math.max(clearedAt, alertsClearedAt), MAX_EVENTS);
   events.length = 0;
   events.push(...next);
   renderEvents();
@@ -96,6 +96,7 @@ function handleAlertsSnapshot(data) {
 function renderEvents() {
   const ul = document.getElementById('events');
   document.getElementById('alert-count').textContent = events.length;
+  document.getElementById('clear-alerts-btn').disabled = !events.length;
   if (!events.length) {
     ul.innerHTML = '<li><span class="empty">No alerts yet</span></li>';
     return;

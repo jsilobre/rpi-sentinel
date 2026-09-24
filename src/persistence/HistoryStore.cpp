@@ -362,4 +362,13 @@ void HistoryStore::clear_all()
     inserts_since_rotate_ = 0;
 }
 
+void HistoryStore::clear_alerts()
+{
+    std::lock_guard lock(mutex_);
+    if (!db_) return;
+    char* err = nullptr;
+    sqlite3_exec(db_, "DELETE FROM alerts;", nullptr, nullptr, &err);
+    if (err) { sqlite3_free(err); }
+}
+
 } // namespace rpi
