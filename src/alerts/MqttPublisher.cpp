@@ -147,6 +147,7 @@ void MqttPublisher::connect()
     history_resp_prefix_  = config_.topic_prefix + "/history/resp/";
     cmd_refresh_topic_    = config_.topic_prefix + "/cmd/refresh";
     cmd_clear_topic_      = config_.topic_prefix + "/cmd/clear";
+    cmd_clear_alerts_topic_ = config_.topic_prefix + "/cmd/clear_alerts";
     alerts_topic_         = config_.topic_prefix + "/alerts/recent";
 
     if (history_store_) {
@@ -197,6 +198,7 @@ void MqttPublisher::handle_connect(int rc)
     mosquitto_subscribe(mosq_, nullptr, status_topic_.c_str(), /*qos=*/1);
     mosquitto_subscribe(mosq_, nullptr, cmd_refresh_topic_.c_str(), /*qos=*/1);
     mosquitto_subscribe(mosq_, nullptr, cmd_clear_topic_.c_str(),   /*qos=*/1);
+    mosquitto_subscribe(mosq_, nullptr, cmd_clear_alerts_topic_.c_str(), /*qos=*/1);
     publish(status_topic_, R"({"status":"online"})", /*retain=*/true);
     publish(alerts_topic_, alerts_snapshot(), /*retain=*/true);
     std::println("[MqttPublisher] Connected and online");
@@ -265,6 +267,17 @@ void MqttPublisher::handle_message(const struct mosquitto_message* msg)
     if (topic == cmd_clear_topic_) {
         std::println("[MqttPublisher] Clear-history requested via MQTT");
         if (data_clearer_) data_clearer_();
+        {
+            std::lock_guard lk{alerts_mu_};
+            recent_alerts_.clear();
+        }
+        publish(alerts_topic_, alerts_snapshot(), /*retain=*/true);
+        return;
+    }
+
+    if (topic == cmd_clear_alerts_topic_) {
+        std::println("[MqttPublisher] Clear-alerts requested via MQTT");
+        if (history_store_) history_store_->clear_alerts();
         {
             std::lock_guard lk{alerts_mu_};
             recent_alerts_.clear();

@@ -84,6 +84,7 @@ private:
     std::string                   history_resp_prefix_;
     std::string                   cmd_refresh_topic_;
     std::string                   cmd_clear_topic_;
+    std::string                   cmd_clear_alerts_topic_;
     std::string                   alerts_topic_;
 
     // Most recent alerts, newest first. Seeded from the history store at

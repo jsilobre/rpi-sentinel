@@ -221,13 +221,17 @@ dashboard opened later would miss them. The daemon therefore also publishes a
   `history.enabled = false` it still works but starts empty after a restart.
 - **Clear Data** (`rpi/cmd/clear`) empties the table and publishes
   `{"alerts": []}`.
+- **Clear alerts** (`rpi/cmd/clear_alerts`, button in the timeline header)
+  empties only the `alerts` table — readings are kept — and publishes
+  `{"alerts": []}`.
 - The dashboard replaces its timeline with each snapshot; the retained copy
   keeps the timeline available even while the Pi is offline.
 - A daemon restart re-evaluates every sensor from scratch, so an alert that
   was already active is logged again as a fresh `EXCEEDED`.
 
 **Broker ACL:** the dashboard user needs `subscribe` on `rpi/alerts/recent`
-and the daemon user `publish` on it — the topic doesn't match the
+(and `publish` on `rpi/cmd/clear_alerts`, subscribed by the daemon), and the
+daemon user `publish` on it — the topic doesn't match the
 `rpi/+/reading` / `rpi/+/alert` patterns.
 
 ---

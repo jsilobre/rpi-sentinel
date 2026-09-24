@@ -106,6 +106,21 @@ document.getElementById('clear-btn').addEventListener('click', () => {
   }, 2000);
 });
 
+// ── Clear the alert timeline (readings are kept) ─────────────────────────────────
+document.getElementById('clear-alerts-btn').addEventListener('click', () => {
+  if (!confirm('Effacer toutes les alertes ? Les mesures sont conservées.')) return;
+  if (!client || !client.connected) {
+    alert('Non connecté au broker MQTT.');
+    return;
+  }
+  client.publish(`${TOPIC_PREFIX}/cmd/clear_alerts`, '{}', { qos: 1, retain: false });
+  // Empty the timeline now; a stale retained snapshot arriving before the
+  // daemon's empty one is filtered by alertsClearedAt.
+  alertsClearedAt = Date.now();
+  events.length = 0;
+  renderEvents();
+});
+
 // ── Time-window buttons (event delegation) ───────────────────────────────────────
 document.getElementById('time-bar').addEventListener('click', e => {
   const btn = e.target.closest('.time-btn[data-w]');
