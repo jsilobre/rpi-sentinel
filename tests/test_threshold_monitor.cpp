@@ -4,6 +4,7 @@
 #include "../src/events/EventBus.hpp"
 #include "../src/alerts/IAlertHandler.hpp"
 
+#include <atomic>
 #include <chrono>
 #include <mutex>
 #include <thread>
@@ -168,4 +169,32 @@ TEST(ThresholdMonitor, TransitionCarriesCrossedThresholdLevel)
     EXPECT_EQ(warn.type, SensorEvent::Type::ThresholdExceeded);
     EXPECT_EQ(warn.level, SensorEvent::Level::Warn);
     EXPECT_FLOAT_EQ(warn.threshold, 50.0f);
+}
+
+TEST(ThresholdMonitor, SetPollIntervalCutsLongSleepShort)
+{
+    // Starts with a one-hour interval: without the change, only the initial
+    // read would ever happen during this test.
+    std::atomic<int> reads{0};
+    SimulatedSensor sensor("test", "temperature", [&reads]() { ++reads; return 20.0f; });
+
+    EventBus bus;
+    MonitorConfig cfg{
+        .threshold_warn = 50.0f,
+        .threshold_crit = 65.0f,
+        .hysteresis     = 2.0f,
+        .poll_interval  = std::chrono::hours{1},
+    };
+
+    ThresholdMonitor monitor(sensor, bus, cfg);
+    monitor.start();
+    std::this_thread::sleep_for(std::chrono::milliseconds{50});
+    EXPECT_EQ(reads.load(), 1);
+
+    monitor.set_poll_interval(std::chrono::milliseconds{20});
+    EXPECT_EQ(monitor.get_poll_interval(), std::chrono::milliseconds{20});
+    std::this_thread::sleep_for(std::chrono::milliseconds{200});
+    monitor.stop();
+
+    EXPECT_GE(reads.load(), 4);
 }

@@ -79,6 +79,7 @@ function loadHelpers() {
   const epilogue = `
     globalThis.__T__ = {
       domId, escapeHtml, fmt, newRequestId, statusBadge, snapshotToEvents,
+      parsePollIntervalSeconds,
       unitFor, axisTitle, gridColumns, positionCardInGrid,
       setWindow: (w) => { currentWindow = w; },
       WINDOWS,
@@ -220,4 +221,13 @@ test('snapshotToEvents tolerates malformed payloads', () => {
   assert.equal(H.snapshotToEvents({ alerts: 'nope' }, 0, 50).length, 0);
   assert.equal(H.snapshotToEvents(null, 0, 50).length, 0);
   assert.equal(H.snapshotToEvents({ alerts: [null, { foo: 1 }] }, 0, 50).length, 0);
+});
+
+test('parsePollIntervalSeconds converts seconds to ms within the daemon bounds', () => {
+  assert.equal(H.parsePollIntervalSeconds('5'), 5000);
+  assert.equal(H.parsePollIntervalSeconds(' 2.5 '), 2500);
+  assert.equal(H.parsePollIntervalSeconds('1'), 1000);
+  assert.equal(H.parsePollIntervalSeconds('3600'), 3600000);
+  for (const bad of ['', '   ', '0.5', '0', '-2', '3601', 'abc', null, undefined, 'Infinity'])
+    assert.equal(H.parsePollIntervalSeconds(bad), null, `input ${String(bad)}`);
 });

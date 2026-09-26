@@ -5,6 +5,7 @@
 
 #include <chrono>
 #include <filesystem>
+#include <format>
 #include <nlohmann/json.hpp>
 
 using namespace rpi;
@@ -178,4 +179,32 @@ TEST(MqttAlertsSnapshot, KeepsOrderAndSerialisesFields)
     // Rounded to 2 decimals, without float noise.
     EXPECT_EQ(second["value"].get<double>(),     21.9);
     EXPECT_EQ(second["threshold"].get<double>(), 21.5);
+}
+
+TEST(MqttPollInterval, AcceptsIntervalWithinBounds)
+{
+    auto r = MqttPublisher::parse_poll_interval(R"({"poll_interval_ms": 5000})");
+    ASSERT_TRUE(r.has_value());
+    EXPECT_EQ(*r, std::chrono::milliseconds{5000});
+
+    EXPECT_TRUE(MqttPublisher::parse_poll_interval(
+        std::format(R"({{"poll_interval_ms": {}}})", MIN_POLL_INTERVAL.count())).has_value());
+    EXPECT_TRUE(MqttPublisher::parse_poll_interval(
+        std::format(R"({{"poll_interval_ms": {}}})", MAX_POLL_INTERVAL.count())).has_value());
+}
+
+TEST(MqttPollInterval, RejectsInvalidPayloads)
+{
+    for (const char* p : {
+             R"({"poll_interval_ms": 999})",        // below the minimum
+             R"({"poll_interval_ms": 3600001})",    // above the maximum
+             R"({"poll_interval_ms": -5000})",
+             R"({"poll_interval_ms": 2500.5})",     // not an integer
+             R"({"poll_interval_ms": "5000"})",
+             R"({"sensor_id": "a"})",
+             R"([5000])",
+             "not json",
+         }) {
+        EXPECT_FALSE(MqttPublisher::parse_poll_interval(p).has_value()) << p;
+    }
 }
