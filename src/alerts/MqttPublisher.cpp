@@ -209,6 +209,11 @@ void MqttPublisher::set_threshold_callback(ThresholdCallback cb)
     threshold_cb_ = std::move(cb);
 }
 
+void MqttPublisher::set_poll_interval_callback(PollIntervalCallback cb)
+{
+    poll_interval_cb_ = std::move(cb);
+}
+
 void MqttPublisher::set_force_poller(ForcePoller cb)
 {
     force_poller_ = std::move(cb);
@@ -302,6 +307,22 @@ void MqttPublisher::handle_message(const struct mosquitto_message* msg)
         return;
     }
 
+    // Global setting, not tied to a sensor: {"poll_interval_ms": N}.
+    if (j.is_object() && j.contains("poll_interval_ms")) {
+        auto interval = parse_poll_interval(payload);
+        if (!interval) {
+            std::println(stderr, "[MqttPublisher] config/set: {}", interval.error());
+            return;
+        }
+        if (poll_interval_cb_) {
+            if (auto r = poll_interval_cb_(*interval); !r)
+                std::println(stderr, "[MqttPublisher] config/set update failed: {}", r.error());
+            else
+                std::println("[MqttPublisher] Poll interval updated: {} ms", interval->count());
+        }
+        return;
+    }
+
     if (!j.contains("sensor_id")      || !j["sensor_id"].is_string()
      || !j.contains("threshold_warn") || !j["threshold_warn"].is_number()
      || !j.contains("threshold_crit") || !j["threshold_crit"].is_number()) {
@@ -326,6 +347,26 @@ void MqttPublisher::handle_message(const struct mosquitto_message* msg)
         else
             std::println("[MqttPublisher] Thresholds updated: {} warn={} crit={}", id, warn, crit);
     }
+}
+
+std::expected<std::chrono::milliseconds, std::string>
+MqttPublisher::parse_poll_interval(const std::string& payload)
+{
+    nlohmann::json j;
+    try {
+        j = nlohmann::json::parse(payload);
+    } catch (...) {
+        return std::unexpected("invalid JSON");
+    }
+    if (!j.is_object() || !j.contains("poll_interval_ms")
+     || !j["poll_interval_ms"].is_number_integer())
+        return std::unexpected("poll_interval_ms must be an integer");
+
+    const auto ms = std::chrono::milliseconds{j["poll_interval_ms"].get<std::int64_t>()};
+    if (ms < MIN_POLL_INTERVAL || ms > MAX_POLL_INTERVAL)
+        return std::unexpected(std::format("poll_interval_ms must be in [{}, {}]",
+            MIN_POLL_INTERVAL.count(), MAX_POLL_INTERVAL.count()));
+    return ms;
 }
 
 std::string MqttPublisher::build_history_response(const std::string& request_payload) const

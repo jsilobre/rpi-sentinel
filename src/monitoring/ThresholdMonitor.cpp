@@ -11,6 +11,7 @@ ThresholdMonitor::ThresholdMonitor(ISensorReader& sensor, EventBus& bus, Monitor
     , config_(config)
     , threshold_warn_(config.threshold_warn)
     , threshold_crit_(config.threshold_crit)
+    , poll_interval_ms_(config.poll_interval.count())
 {}
 
 ThresholdMonitor::~ThresholdMonitor()
@@ -35,6 +36,13 @@ void ThresholdMonitor::update_thresholds(float warn, float crit)
 {
     threshold_warn_.store(warn);
     threshold_crit_.store(crit);
+}
+
+void ThresholdMonitor::set_poll_interval(std::chrono::milliseconds interval)
+{
+    poll_interval_ms_.store(interval.count());
+    // Cut the current (possibly long) sleep short so the new interval applies now.
+    force_poll();
 }
 
 void ThresholdMonitor::force_poll()
@@ -107,7 +115,7 @@ void ThresholdMonitor::run(std::stop_token stop)
         }
 
         std::unique_lock lock(sleep_mtx_);
-        sleep_cv_.wait_for(lock, stop, config_.poll_interval,
+        sleep_cv_.wait_for(lock, stop, get_poll_interval(),
             [this] { return force_poll_flag_.load(); });
         force_poll_flag_.store(false);
     }

@@ -27,6 +27,12 @@ public:
     void force_poll();
 
     void  update_thresholds(float warn, float crit);
+    // Takes effect immediately: the monitor wakes, reads, then sleeps for
+    // the new interval.
+    void  set_poll_interval(std::chrono::milliseconds interval);
+    std::chrono::milliseconds get_poll_interval() const {
+        return std::chrono::milliseconds{poll_interval_ms_.load()};
+    }
     float get_threshold_warn() const { return threshold_warn_.load(); }
     float get_threshold_crit() const { return threshold_crit_.load(); }
 
@@ -38,6 +44,7 @@ private:
     MonitorConfig               config_;
     std::atomic<float>          threshold_warn_;
     std::atomic<float>          threshold_crit_;
+    std::atomic<std::chrono::milliseconds::rep> poll_interval_ms_;
     std::atomic<bool>           force_poll_flag_{false};
     std::mutex                  sleep_mtx_;
     std::condition_variable_any sleep_cv_;

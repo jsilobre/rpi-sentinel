@@ -141,8 +141,21 @@ int main(int argc, char* argv[])
         return {};
     };
 
+    auto on_poll_interval_change = [&hub, &config_path, &mqtt_pub](
+        std::chrono::milliseconds interval) -> std::expected<void, std::string>
+    {
+        hub.update_poll_interval(interval);
+        if (auto r = rpi::save_config(config_path, hub.get_config_snapshot()); !r) {
+            std::println(stderr, "[main] save_config failed: {}", r.error());
+            return r;
+        }
+        if (mqtt_pub) mqtt_pub->publish_config(hub.build_config_json());
+        return {};
+    };
+
     if (mqtt_pub) {
         mqtt_pub->set_threshold_callback(on_config_change);
+        mqtt_pub->set_poll_interval_callback(on_poll_interval_change);
         mqtt_pub->set_force_poller([&hub]() { hub.force_poll_all(); });
         mqtt_pub->set_data_clearer([&history_store]() {
             if (history_store) history_store->clear_all();

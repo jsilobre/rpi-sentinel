@@ -20,7 +20,7 @@
     <button class="icon-btn" id="refresh-btn" title="Force immediate sensor poll" disabled>↻ Refresh</button>
     <button class="icon-btn" id="viewmode-btn" title="Switch between per-sensor cards and a single combined graph">▦ Combined</button>
     <button class="icon-btn" id="organize-btn" title="Arrange sensor windows alphabetically">⊞ Organize</button>
-    <button class="icon-btn" id="config-btn" title="Configure thresholds">⚙ Config</button>
+    <button class="icon-btn" id="config-btn" title="Configure poll interval and thresholds">⚙ Config</button>
     <button class="icon-btn" id="export-btn" title="Cloud storage required to export" disabled>⬇ Export CSV</button>
     <button class="icon-btn danger" id="clear-btn" title="Delete all stored history">🗑 Clear Data</button>
     <button class="icon-btn" id="theme-btn" title="Toggle theme">☾</button>
@@ -81,10 +81,19 @@
   <div class="modal-backdrop" id="config-modal">
     <div class="modal">
       <div class="modal-head">
-        <h3>Threshold configuration</h3>
+        <h3>Configuration</h3>
         <button class="modal-close" id="modal-close" aria-label="Close">✕</button>
       </div>
       <div class="modal-body">
+        <div id="config-general" style="display:none">
+          <div class="config-row config-row-general">
+            <span class="config-label">Poll interval</span>
+            <span class="config-field"><input class="config-input" type="number" min="1" max="3600" step="0.5" id="cfg-poll"> s</span>
+            <button class="config-save-btn" type="button" id="cfg-poll-save">Save</button>
+            <span class="save-feedback" id="cfg-poll-fb"></span>
+          </div>
+          <div class="config-hint">How often every sensor is read and sent to the dashboard (1&nbsp;s – 1&nbsp;h).</div>
+        </div>
         <div id="config-rows"><span class="empty">Waiting for RPi…</span></div>
       </div>
     </div>

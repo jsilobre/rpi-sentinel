@@ -59,6 +59,11 @@ struct CloudStorageConfig {
     std::string api_key;               // dev-only fallback; never commit
 };
 
+// Bounds for a poll interval changed at runtime from the dashboard. The DHT11
+// needs at least ~1 s between reads; an hour is plenty for slow metrics.
+inline constexpr std::chrono::milliseconds MIN_POLL_INTERVAL{1000};
+inline constexpr std::chrono::milliseconds MAX_POLL_INTERVAL{3'600'000};
+
 struct Config {
     std::vector<SensorConfig> sensors;
     float                     hysteresis    = 2.0f;
