@@ -5,6 +5,7 @@
 #include "IAlertHandler.hpp"
 #include "../monitoring/Config.hpp"
 #include "../persistence/HistoryStore.hpp"  // StoredAlert (std::deque needs a complete type)
+#include <chrono>
 #include <condition_variable>
 #include <deque>
 #include <expected>
@@ -25,6 +26,8 @@ class MqttPublisher final : public IAlertHandler {
 public:
     using ThresholdCallback = std::function<std::expected<void, std::string>(
                                   const std::string& sensor_id, float warn, float crit)>;
+    using PollIntervalCallback = std::function<std::expected<void, std::string>(
+                                  std::chrono::milliseconds interval)>;
     using ForcePoller       = std::function<void()>;
     using DataClearer       = std::function<void()>;
 
@@ -35,6 +38,7 @@ public:
     void disconnect();
 
     void set_threshold_callback(ThresholdCallback cb);
+    void set_poll_interval_callback(PollIntervalCallback cb);
     void set_force_poller(ForcePoller cb);
     void set_data_clearer(DataClearer cb);
     void set_history_store(std::shared_ptr<HistoryStore> store);
@@ -49,6 +53,12 @@ public:
     // Exposed for tests: JSON body of the retained <prefix>/alerts/recent
     // snapshot, `alerts` newest first.
     static std::string build_alerts_snapshot(const std::deque<StoredAlert>& alerts);
+
+    // Exposed for tests: the interval carried by a {"poll_interval_ms": N}
+    // config/set payload, or an error if it is missing, not an integer or
+    // outside [MIN_POLL_INTERVAL, MAX_POLL_INTERVAL].
+    static std::expected<std::chrono::milliseconds, std::string>
+        parse_poll_interval(const std::string& payload);
 
     // Size of that snapshot; matches the dashboard's MAX_EVENTS.
     static constexpr std::size_t RECENT_ALERTS_MAX = 50;
@@ -74,6 +84,7 @@ private:
     MqttConfig                    config_;
     mosquitto*                    mosq_ = nullptr;
     ThresholdCallback             threshold_cb_;
+    PollIntervalCallback          poll_interval_cb_;
     ForcePoller                   force_poller_;
     DataClearer                   data_clearer_;
     std::shared_ptr<HistoryStore> history_store_;

@@ -335,6 +335,7 @@ client.on('message', (topic, message) => {
 
   if (topic === `${TOPIC_PREFIX}/config/current`) {
     const incoming = data.sensors ?? [];
+    pollIntervalMs = Number.isInteger(data.poll_interval_ms) ? data.poll_interval_ms : null;
 
     knownSensorIds.clear();
     incoming.forEach(s => {

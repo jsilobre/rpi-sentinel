@@ -65,6 +65,17 @@ Each `ThresholdMonitor` runs its own `std::jthread`, polling its dedicated senso
 └─────────────────────────────────────────────────────────┘
 ```
 
+The sleep is interruptible: the dashboard's **↻ Refresh** button
+(`rpi/cmd/refresh`) and a threshold change wake the thread for an immediate read.
+
+**Changing the poll interval at runtime.** `poll_interval_ms` is global (one
+value for every sensor). The dashboard's **⚙ Config** panel publishes
+`{"poll_interval_ms": N}` on `rpi/config/set`; `N` must be an integer between
+1000 (1 s) and 3 600 000 (1 h). The daemon applies it to every monitor at once
+(each wakes, reads, then sleeps for the new interval), writes it to
+`config.json`, and republishes `rpi/config/current`, which now carries
+`poll_interval_ms` alongside `sensors` — that republish is the dashboard's ack.
+
 ---
 
 ## 3. SensorEvent lifecycle

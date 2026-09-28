@@ -73,6 +73,14 @@ void MonitoringHub::update_thresholds(const std::string& sensor_id, float warn, 
     }
 }
 
+void MonitoringHub::update_poll_interval(std::chrono::milliseconds interval)
+{
+    for (auto& m : monitors_) m->set_poll_interval(interval);
+
+    std::lock_guard lock(config_mutex_);
+    config_.poll_interval = interval;
+}
+
 Config MonitoringHub::get_config_snapshot() const
 {
     std::lock_guard lock(config_mutex_);
@@ -91,7 +99,10 @@ std::string MonitoringHub::build_config_json() const
             {"threshold_crit", sc.threshold_crit},
         });
     }
-    return nlohmann::json{{"sensors", arr}}.dump();
+    return nlohmann::json{
+        {"poll_interval_ms", config_.poll_interval.count()},
+        {"sensors",          arr},
+    }.dump();
 }
 
 void MonitoringHub::force_poll_all()

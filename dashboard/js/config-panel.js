@@ -1,6 +1,66 @@
-// ── Threshold configuration panel ───────────────────────────────────────────────
+// ── Configuration panel (poll interval + per-sensor thresholds) ─────────────────
 
 function renderConfigPanel() {
+  renderPollInterval();
+  renderThresholdRows();
+}
+
+// Hidden for a daemon too old to report its poll interval in config/current.
+function renderPollInterval() {
+  const wrap  = document.getElementById('config-general');
+  const input = document.getElementById('cfg-poll');
+  wrap.style.display = pollIntervalMs == null ? 'none' : '';
+  if (pollIntervalMs != null && document.activeElement !== input)
+    input.value = String(pollIntervalMs / 1000);
+}
+
+function savePollInterval() {
+  const input = document.getElementById('cfg-poll');
+  const fb    = document.getElementById('cfg-poll-fb');
+  const ms    = parsePollIntervalSeconds(input.value);
+  if (ms == null) {
+    fb.textContent = 'Invalid'; fb.className = 'save-feedback save-err';
+    fb.title = 'Enter a number of seconds between 1 and 3600';
+    return;
+  }
+  fb.title = '';
+  if (!client || !client.connected) {
+    fb.textContent = 'Offline'; fb.className = 'save-feedback save-err';
+    return;
+  }
+  if (pendingPollSave && pendingPollSave.timer) clearTimeout(pendingPollSave.timer);
+  fb.textContent = 'Sending…'; fb.className = 'save-feedback';
+
+  client.publish(
+    `${TOPIC_PREFIX}/config/set`,
+    JSON.stringify({ poll_interval_ms: ms }),
+    { qos: 1, retain: false },
+    err => {
+      if (err) {
+        fb.textContent = 'Error'; fb.className = 'save-feedback save-err';
+        pendingPollSave = null;
+        return;
+      }
+      fb.textContent = 'Sent'; fb.className = 'save-feedback';
+      pendingPollSave = {
+        ms,
+        timer: setTimeout(() => {
+          if (pendingPollSave) {
+            fb.textContent = 'No ack'; fb.className = 'save-feedback save-err';
+            pendingPollSave = null;
+          }
+        }, 5000),
+      };
+    }
+  );
+}
+
+document.getElementById('cfg-poll-save').addEventListener('click', savePollInterval);
+document.getElementById('cfg-poll').addEventListener('keydown', e => {
+  if (e.key === 'Enter') savePollInterval();
+});
+
+function renderThresholdRows() {
   const container = document.getElementById('config-rows');
   const ids = Object.keys(sensorThresholds);
   if (!ids.length) {
@@ -101,6 +161,19 @@ function saveThreshold(sensorId, sid) {
 }
 
 function reconcilePendingSaves() {
+  if (pendingPollSave && pollIntervalMs != null) {
+    const fb = document.getElementById('cfg-poll-fb');
+    if (pollIntervalMs === pendingPollSave.ms) {
+      fb.textContent = 'Saved'; fb.className = 'save-feedback save-ok';
+    } else {
+      fb.textContent = 'Mismatch'; fb.className = 'save-feedback save-err';
+      fb.title = `Server applied ${pollIntervalMs / 1000} s`;
+    }
+    clearTimeout(pendingPollSave.timer);
+    setTimeout(() => { fb.textContent = ''; fb.title = ''; }, 3000);
+    pendingPollSave = null;
+  }
+
   for (const [sensorId, p] of Object.entries(pendingSaves)) {
     const thr = sensorThresholds[sensorId];
     if (!thr) continue;

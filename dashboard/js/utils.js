@@ -41,6 +41,18 @@ function hideResetZoom(sensorId) {
   if (btn) btn.style.display = 'none';
 }
 
+// Poll-interval input (seconds, as typed) → integer milliseconds, or null when
+// it isn't a number within the daemon's accepted range (1 s – 1 h).
+const POLL_MIN_MS = 1000;
+const POLL_MAX_MS = 3600000;
+function parsePollIntervalSeconds(text) {
+  const s = String(text ?? '').trim();
+  if (s === '') return null;
+  const ms = Math.round(Number(s) * 1000);
+  if (!Number.isFinite(ms) || ms < POLL_MIN_MS || ms > POLL_MAX_MS) return null;
+  return ms;
+}
+
 // Badge text + CSS class for a reading's `level` ('ok' | 'warn' | 'crit').
 // Returns null when the level is missing or unknown (older daemon).
 function statusBadge(level) {

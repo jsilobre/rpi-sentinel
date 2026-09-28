@@ -112,6 +112,8 @@ canvas{display:block;width:100%!important;height:100%!important}
 .config-row{display:grid;grid-template-columns:1fr auto auto auto auto;gap:8px;align-items:center;
   padding:10px 0;border-bottom:1px solid var(--border)}
 .config-row:last-child{border-bottom:none}
+.config-row-general{grid-template-columns:1fr auto auto auto;border-bottom:none;padding-bottom:2px}
+.config-hint{font-size:11px;color:var(--muted);padding-bottom:10px;border-bottom:1px solid var(--border)}
 .config-label{font-weight:600;font-size:12.5px}
 .config-field{display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted)}
 .config-input{width:68px;background:var(--surface-2);border:1px solid var(--border);border-radius:6px;
