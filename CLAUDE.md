@@ -156,6 +156,8 @@ Copy `config.example.json` to `config.json`. Key fields:
 }
 ```
 
+Each sensor also accepts `"enabled": false` (default `true`): the daemon then neither reads nor reports it. The dashboard's ⚙ Config panel toggles it at runtime via `{"sensor_id": "<id>", "enabled": bool}` on `rpi/config/set` and hides the sensor's card; the change is persisted to `config.json`.
+
 Sensor `type` values: `simulated`, `ds18b20`, `dht11`, `cpu_temp`, `sgp30`. DS18B20 requires `device_path` pointing to `/sys/bus/w1/devices/<id>/temperature`. The `data/` directory is created automatically at runtime.
 
 `cloud_storage.api_key_env` names an environment variable holding the Bearer token that authenticates POST requests to the Worker. Never put the key literal in `config.json` — use the env var. See `docs/cloudflare-setup.md`.

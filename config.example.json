@@ -51,6 +51,7 @@
         {
             // Built-in Raspberry Pi SoC temperature (no extra hardware needed).
             // Override "device_path" to target a different thermal zone.
+            // "enabled": false stops reading/reporting this sensor (default true).
             "id": "cpu-temp",
             "type": "cpu_temp",
             "threshold_warn": 70.0,

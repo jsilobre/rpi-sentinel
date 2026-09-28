@@ -21,6 +21,9 @@ struct SensorConfig {
     std::string metric         = "temperature";
     float       threshold_warn = 60.0f;
     float       threshold_crit = 80.0f;
+    // A disabled sensor is neither read nor reported; toggled at runtime
+    // from the dashboard and persisted like the thresholds.
+    bool        enabled        = true;
 };
 
 struct MqttConfig {

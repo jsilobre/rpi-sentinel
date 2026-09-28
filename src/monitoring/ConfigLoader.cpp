@@ -29,6 +29,7 @@ static auto parse_sensor_config(const nlohmann::json& j) -> std::expected<Sensor
     if (j.contains("metric"))         sc.metric         = j["metric"].get<std::string>();
     if (j.contains("threshold_warn")) sc.threshold_warn = j["threshold_warn"].get<float>();
     if (j.contains("threshold_crit")) sc.threshold_crit = j["threshold_crit"].get<float>();
+    if (j.contains("enabled"))        sc.enabled        = j["enabled"].get<bool>();
 
     if (sc.threshold_warn >= sc.threshold_crit)
         return std::unexpected(std::format(
@@ -194,6 +195,7 @@ auto save_config(const std::filesystem::path& path, const Config& config) -> std
         s["metric"]         = sc.metric;
         s["threshold_warn"] = sc.threshold_warn;
         s["threshold_crit"] = sc.threshold_crit;
+        s["enabled"]        = sc.enabled;
         if (!sc.device_path.empty())
             s["device_path"] = sc.device_path;
         sensors.push_back(std::move(s));

@@ -22,6 +22,7 @@
 #include <csignal>
 #include <chrono>
 #include <filesystem>
+#include <format>
 #include <memory>
 #include <print>
 #include <thread>
@@ -153,9 +154,23 @@ int main(int argc, char* argv[])
         return {};
     };
 
+    auto on_enabled_change = [&hub, &config_path, &mqtt_pub](
+        const std::string& sensor_id, bool enabled) -> std::expected<void, std::string>
+    {
+        if (!hub.set_sensor_enabled(sensor_id, enabled))
+            return std::unexpected(std::format("unknown sensor '{}'", sensor_id));
+        if (auto r = rpi::save_config(config_path, hub.get_config_snapshot()); !r) {
+            std::println(stderr, "[main] save_config failed: {}", r.error());
+            return r;
+        }
+        if (mqtt_pub) mqtt_pub->publish_config(hub.build_config_json());
+        return {};
+    };
+
     if (mqtt_pub) {
         mqtt_pub->set_threshold_callback(on_config_change);
         mqtt_pub->set_poll_interval_callback(on_poll_interval_change);
+        mqtt_pub->set_enabled_callback(on_enabled_change);
         mqtt_pub->set_force_poller([&hub]() { hub.force_poll_all(); });
         mqtt_pub->set_data_clearer([&history_store]() {
             if (history_store) history_store->clear_all();

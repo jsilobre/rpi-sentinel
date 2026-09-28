@@ -76,6 +76,19 @@ value for every sensor). The dashboard's **⚙ Config** panel publishes
 `config.json`, and republishes `rpi/config/current`, which now carries
 `poll_interval_ms` alongside `sensors` — that republish is the dashboard's ack.
 
+**Enabling / disabling a sensor at runtime.** Each row of the **⚙ Config**
+panel has an *enabled* checkbox, which publishes
+`{"sensor_id": "<id>", "enabled": true|false}` on `rpi/config/set`. A disabled
+monitor keeps its thread but skips `sensor.read()` entirely, so no `Reading` or
+threshold event is dispatched — nothing reaches the log, SQLite, MQTT, OTLP or
+Cloudflare D1. Disabling silently clears any active warn/crit state (no
+`ThresholdRecovered` is sent, since the value never came back down);
+re-enabling wakes the thread for an immediate read that starts from OK. The
+flag is written to `config.json` as `"enabled"` on the sensor (default `true`)
+and carried by each sensor in `rpi/config/current`; the dashboard hides the
+card and the combined-view series of every disabled sensor. Stored history is
+left untouched.
+
 ---
 
 ## 3. SensorEvent lifecycle

@@ -55,7 +55,7 @@ function updateStats(sensorId) {
 }
 
 function ensureCard(sensorId, metric) {
-  if (knownSensorIds.size > 0 && !knownSensorIds.has(sensorId)) return;
+  if (!isSensorShown(sensorId)) return;
   const sid = domId(sensorId);
   if (document.getElementById('card-' + sid)) return;
 

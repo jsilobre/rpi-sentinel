@@ -338,9 +338,13 @@ client.on('message', (topic, message) => {
     pollIntervalMs = Number.isInteger(data.poll_interval_ms) ? data.poll_interval_ms : null;
 
     knownSensorIds.clear();
+    disabledSensorIds.clear();
+    for (const id in sensorThresholds) delete sensorThresholds[id];
     incoming.forEach(s => {
-      knownSensorIds.add(s.id);
-      sensorThresholds[s.id] = { warn: s.threshold_warn, crit: s.threshold_crit };
+      // Older daemons send no `enabled`: treat every sensor as enabled.
+      const enabled = s.enabled !== false;
+      (enabled ? knownSensorIds : disabledSensorIds).add(s.id);
+      sensorThresholds[s.id] = { warn: s.threshold_warn, crit: s.threshold_crit, enabled };
     });
 
     for (const sensorId in charts) {
@@ -353,7 +357,8 @@ client.on('message', (topic, message) => {
         pendingHydrationSet.delete(sensorId);
         delete sensorMetric[sensorId];
         delete sensorColor[sensorId];
-        combinedHidden.delete(sensorId);
+        // Keep the legend choice of a merely disabled sensor for when it returns.
+        if (!disabledSensorIds.has(sensorId)) combinedHidden.delete(sensorId);
         const cardEl = document.getElementById('card-' + domId(sensorId));
         if (cardEl) {
           cardResizeObserver.unobserve(cardEl);

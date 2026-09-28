@@ -198,3 +198,101 @@ TEST(ThresholdMonitor, SetPollIntervalCutsLongSleepShort)
 
     EXPECT_GE(reads.load(), 4);
 }
+
+TEST(ThresholdMonitor, DisabledMonitorNeitherReadsNorDispatches)
+{
+    std::atomic<int> reads{0};
+    SimulatedSensor sensor("test", "temperature", [&reads]() { ++reads; return 75.0f; });
+
+    EventBus bus;
+    auto handler = std::make_shared<ReadingCapture>();
+    bus.register_handler(handler);
+
+    MonitorConfig cfg{
+        .threshold_warn = 50.0f,
+        .threshold_crit = 65.0f,
+        .hysteresis     = 2.0f,
+        .poll_interval  = std::chrono::milliseconds{20},
+        .enabled        = false,
+    };
+
+    ThresholdMonitor monitor(sensor, bus, cfg);
+    EXPECT_FALSE(monitor.is_enabled());
+    monitor.start();
+    std::this_thread::sleep_for(std::chrono::milliseconds{150});
+    monitor.stop();
+
+    EXPECT_EQ(reads.load(), 0);
+    std::lock_guard lock(handler->mutex_);
+    EXPECT_TRUE(handler->readings.empty());
+}
+
+TEST(ThresholdMonitor, EnablingReadsImmediately)
+{
+    std::atomic<int> reads{0};
+    SimulatedSensor sensor("test", "temperature", [&reads]() { ++reads; return 20.0f; });
+
+    EventBus bus;
+    MonitorConfig cfg{
+        .threshold_warn = 50.0f,
+        .threshold_crit = 65.0f,
+        .hysteresis     = 2.0f,
+        .poll_interval  = std::chrono::hours{1},
+        .enabled        = false,
+    };
+
+    ThresholdMonitor monitor(sensor, bus, cfg);
+    monitor.start();
+    std::this_thread::sleep_for(std::chrono::milliseconds{50});
+    EXPECT_EQ(reads.load(), 0);
+
+    monitor.set_enabled(true);
+    std::this_thread::sleep_for(std::chrono::milliseconds{100});
+    monitor.stop();
+
+    EXPECT_TRUE(monitor.is_enabled());
+    EXPECT_EQ(reads.load(), 1);
+}
+
+TEST(ThresholdMonitor, DisablingSilentlyResetsAlertState)
+{
+    SimulatedSensor sensor("test", "temperature", []() { return 75.0f; });
+
+    EventBus bus;
+    auto handler = std::make_shared<CapturingHandler>();
+    bus.register_handler(handler);
+
+    MonitorConfig cfg{
+        .threshold_warn = 50.0f,
+        .threshold_crit = 65.0f,
+        .hysteresis     = 2.0f,
+        .poll_interval  = std::chrono::hours{1},
+    };
+
+    ThresholdMonitor monitor(sensor, bus, cfg);
+    monitor.start();
+    std::this_thread::sleep_for(std::chrono::milliseconds{50});
+    {
+        std::lock_guard lock(handler->mutex_);
+        ASSERT_EQ(handler->events.size(), 1u);
+        EXPECT_EQ(handler->events[0].type, SensorEvent::Type::ThresholdExceeded);
+    }
+
+    monitor.set_enabled(false);
+    std::this_thread::sleep_for(std::chrono::milliseconds{50});
+    {
+        // No "recovered" event on disable: the value never came back down.
+        std::lock_guard lock(handler->mutex_);
+        EXPECT_EQ(handler->events.size(), 1u);
+    }
+
+    // Back from OK: the still-high value is reported as a fresh exceedance.
+    monitor.set_enabled(true);
+    std::this_thread::sleep_for(std::chrono::milliseconds{50});
+    monitor.stop();
+
+    std::lock_guard lock(handler->mutex_);
+    ASSERT_EQ(handler->events.size(), 2u);
+    EXPECT_EQ(handler->events[1].type, SensorEvent::Type::ThresholdExceeded);
+    EXPECT_EQ(handler->events[1].level, SensorEvent::Level::Crit);
+}

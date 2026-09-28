@@ -114,7 +114,13 @@ canvas{display:block;width:100%!important;height:100%!important}
 .config-row:last-child{border-bottom:none}
 .config-row-general{grid-template-columns:1fr auto auto auto;border-bottom:none;padding-bottom:2px}
 .config-hint{font-size:11px;color:var(--muted);padding-bottom:10px;border-bottom:1px solid var(--border)}
-.config-label{font-weight:600;font-size:12.5px}
+.config-label{font-weight:600;font-size:12.5px;display:flex;align-items:center;gap:7px;min-width:0}
+label.config-label{cursor:pointer}
+.config-label .config-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.config-enabled{accent-color:var(--accent);width:14px;height:14px;margin:0;cursor:pointer;flex:none}
+.config-row-off .config-name,.config-row-off .config-field{opacity:.45}
+.config-save-btn:disabled{opacity:.45;cursor:not-allowed;filter:none}
+.config-input:disabled{cursor:not-allowed}
 .config-field{display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted)}
 .config-input{width:68px;background:var(--surface-2);border:1px solid var(--border);border-radius:6px;
   color:var(--text);font-size:12px;padding:4px 7px;text-align:right;font-variant-numeric:tabular-nums}
