@@ -79,7 +79,7 @@ function loadHelpers() {
   const epilogue = `
     globalThis.__T__ = {
       domId, escapeHtml, fmt, newRequestId, statusBadge, snapshotToEvents,
-      parsePollIntervalSeconds,
+      parsePollIntervalSeconds, isSensorShown, knownSensorIds, disabledSensorIds,
       unitFor, axisTitle, gridColumns, positionCardInGrid,
       setWindow: (w) => { currentWindow = w; },
       WINDOWS,
@@ -230,4 +230,22 @@ test('parsePollIntervalSeconds converts seconds to ms within the daemon bounds',
   assert.equal(H.parsePollIntervalSeconds('3600'), 3600000);
   for (const bad of ['', '   ', '0.5', '0', '-2', '3601', 'abc', null, undefined, 'Infinity'])
     assert.equal(H.parsePollIntervalSeconds(bad), null, `input ${String(bad)}`);
+});
+
+test('isSensorShown hides disabled and unknown sensors once config is known', () => {
+  H.knownSensorIds.clear(); H.disabledSensorIds.clear();
+  // Before the first config/current: everything is accepted.
+  assert.equal(H.isSensorShown('a'), true);
+
+  H.knownSensorIds.add('a');
+  H.disabledSensorIds.add('b');
+  assert.equal(H.isSensorShown('a'), true);
+  assert.equal(H.isSensorShown('b'), false);   // disabled: its retained reading is ignored
+  assert.equal(H.isSensorShown('zz'), false);  // not in the config
+
+  // Every sensor disabled: nothing is shown, not everything.
+  H.knownSensorIds.clear();
+  assert.equal(H.isSensorShown('b'), false);
+  assert.equal(H.isSensorShown('zz'), false);
+  H.disabledSensorIds.clear();
 });

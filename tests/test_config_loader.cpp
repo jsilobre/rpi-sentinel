@@ -190,3 +190,39 @@ TEST(ConfigLoader, OtlpRejectsNonPositiveExportInterval)
     auto result = rpi::load_config(path);
     EXPECT_FALSE(result.has_value());
 }
+
+TEST(ConfigLoader, SensorEnabledDefaultsToTrue)
+{
+    auto path = write_tmp(R"({
+        "sensors": [
+            {"id": "a", "type": "simulated"},
+            {"id": "b", "type": "simulated", "enabled": false}
+        ]
+    })");
+
+    auto result = rpi::load_config(path);
+    ASSERT_TRUE(result.has_value()) << result.error();
+    ASSERT_EQ(result->sensors.size(), 2u);
+    EXPECT_TRUE(result->sensors[0].enabled);
+    EXPECT_FALSE(result->sensors[1].enabled);
+}
+
+TEST(ConfigLoader, SensorEnabledSurvivesSaveAndReload)
+{
+    auto path = write_tmp(R"({
+        "sensors": [
+            {"id": "a", "type": "simulated"},
+            {"id": "b", "type": "simulated"}
+        ]
+    })");
+    auto cfg = rpi::load_config(path);
+    ASSERT_TRUE(cfg.has_value()) << cfg.error();
+
+    cfg->sensors[1].enabled = false;
+    ASSERT_TRUE(rpi::save_config(path, *cfg).has_value());
+
+    auto reloaded = rpi::load_config(path);
+    ASSERT_TRUE(reloaded.has_value()) << reloaded.error();
+    EXPECT_TRUE(reloaded->sensors[0].enabled);
+    EXPECT_FALSE(reloaded->sensors[1].enabled);
+}

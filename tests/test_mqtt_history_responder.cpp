@@ -208,3 +208,31 @@ TEST(MqttPollInterval, RejectsInvalidPayloads)
         EXPECT_FALSE(MqttPublisher::parse_poll_interval(p).has_value()) << p;
     }
 }
+
+TEST(MqttSensorEnabled, ParsesValidPayloads)
+{
+    auto off = MqttPublisher::parse_sensor_enabled(R"({"sensor_id": "temp1", "enabled": false})");
+    ASSERT_TRUE(off.has_value()) << off.error();
+    EXPECT_EQ(off->sensor_id, "temp1");
+    EXPECT_FALSE(off->enabled);
+
+    auto on = MqttPublisher::parse_sensor_enabled(R"({"sensor_id": "temp1", "enabled": true})");
+    ASSERT_TRUE(on.has_value()) << on.error();
+    EXPECT_TRUE(on->enabled);
+}
+
+TEST(MqttSensorEnabled, RejectsInvalidPayloads)
+{
+    for (const char* p : {
+             R"({"sensor_id": "a", "enabled": "false"})",  // string, not bool
+             R"({"sensor_id": "a", "enabled": 0})",
+             R"({"sensor_id": "a"})",
+             R"({"enabled": true})",
+             R"({"sensor_id": "", "enabled": true})",
+             R"({"sensor_id": 3, "enabled": true})",
+             R"([1, 2])",
+             "not json",
+         }) {
+        EXPECT_FALSE(MqttPublisher::parse_sensor_enabled(p).has_value()) << p;
+    }
+}

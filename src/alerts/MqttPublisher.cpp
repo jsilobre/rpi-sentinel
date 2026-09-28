@@ -214,6 +214,11 @@ void MqttPublisher::set_poll_interval_callback(PollIntervalCallback cb)
     poll_interval_cb_ = std::move(cb);
 }
 
+void MqttPublisher::set_enabled_callback(EnabledCallback cb)
+{
+    enabled_cb_ = std::move(cb);
+}
+
 void MqttPublisher::set_force_poller(ForcePoller cb)
 {
     force_poller_ = std::move(cb);
@@ -323,6 +328,23 @@ void MqttPublisher::handle_message(const struct mosquitto_message* msg)
         return;
     }
 
+    // Per-sensor on/off switch: {"sensor_id": "<id>", "enabled": bool}.
+    if (j.is_object() && j.contains("enabled")) {
+        auto change = parse_sensor_enabled(payload);
+        if (!change) {
+            std::println(stderr, "[MqttPublisher] config/set: {}", change.error());
+            return;
+        }
+        if (enabled_cb_) {
+            if (auto r = enabled_cb_(change->sensor_id, change->enabled); !r)
+                std::println(stderr, "[MqttPublisher] config/set update failed: {}", r.error());
+            else
+                std::println("[MqttPublisher] Sensor {} {}", change->sensor_id,
+                             change->enabled ? "enabled" : "disabled");
+        }
+        return;
+    }
+
     if (!j.contains("sensor_id")      || !j["sensor_id"].is_string()
      || !j.contains("threshold_warn") || !j["threshold_warn"].is_number()
      || !j.contains("threshold_crit") || !j["threshold_crit"].is_number()) {
@@ -367,6 +389,26 @@ MqttPublisher::parse_poll_interval(const std::string& payload)
         return std::unexpected(std::format("poll_interval_ms must be in [{}, {}]",
             MIN_POLL_INTERVAL.count(), MAX_POLL_INTERVAL.count()));
     return ms;
+}
+
+std::expected<MqttPublisher::SensorEnable, std::string>
+MqttPublisher::parse_sensor_enabled(const std::string& payload)
+{
+    nlohmann::json j;
+    try {
+        j = nlohmann::json::parse(payload);
+    } catch (...) {
+        return std::unexpected("invalid JSON");
+    }
+    if (!j.is_object() || !j.contains("sensor_id") || !j["sensor_id"].is_string()
+     || j["sensor_id"].get<std::string>().empty())
+        return std::unexpected("sensor_id must be a non-empty string");
+    if (!j.contains("enabled") || !j["enabled"].is_boolean())
+        return std::unexpected("enabled must be a boolean");
+    return SensorEnable{
+        .sensor_id = j["sensor_id"].get<std::string>(),
+        .enabled   = j["enabled"].get<bool>(),
+    };
 }
 
 std::string MqttPublisher::build_history_response(const std::string& request_payload) const

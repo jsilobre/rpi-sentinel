@@ -47,6 +47,7 @@ MonitoringHub::MonitoringHub(EventBus& bus, Config config)
                 .threshold_crit = sc.threshold_crit,
                 .hysteresis     = config_.hysteresis,
                 .poll_interval  = config_.poll_interval,
+                .enabled        = sc.enabled,
             }
         ));
         monitor_map_[sc.id] = monitors_.back().get();
@@ -81,6 +82,22 @@ void MonitoringHub::update_poll_interval(std::chrono::milliseconds interval)
     config_.poll_interval = interval;
 }
 
+bool MonitoringHub::set_sensor_enabled(const std::string& sensor_id, bool enabled)
+{
+    auto it = monitor_map_.find(sensor_id);
+    if (it == monitor_map_.end()) return false;
+    it->second->set_enabled(enabled);
+
+    std::lock_guard lock(config_mutex_);
+    for (auto& sc : config_.sensors) {
+        if (sc.id == sensor_id) {
+            sc.enabled = enabled;
+            break;
+        }
+    }
+    return true;
+}
+
 Config MonitoringHub::get_config_snapshot() const
 {
     std::lock_guard lock(config_mutex_);
@@ -97,6 +114,7 @@ std::string MonitoringHub::build_config_json() const
             {"metric",         sc.metric},
             {"threshold_warn", sc.threshold_warn},
             {"threshold_crit", sc.threshold_crit},
+            {"enabled",        sc.enabled},
         });
     }
     return nlohmann::json{

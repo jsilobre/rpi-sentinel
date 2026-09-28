@@ -20,6 +20,8 @@ public:
 
     void        update_thresholds(const std::string& sensor_id, float warn, float crit);
     void        update_poll_interval(std::chrono::milliseconds interval);
+    // Returns false if no sensor has this id.
+    bool        set_sensor_enabled(const std::string& sensor_id, bool enabled);
     void        force_poll_all();
     Config      get_config_snapshot() const;
     std::string build_config_json() const;

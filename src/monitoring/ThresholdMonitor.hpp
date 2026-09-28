@@ -15,6 +15,7 @@ struct MonitorConfig {
     float                     threshold_crit;
     float                     hysteresis;
     std::chrono::milliseconds poll_interval;
+    bool                      enabled = true;
 };
 
 class ThresholdMonitor {
@@ -33,6 +34,11 @@ public:
     std::chrono::milliseconds get_poll_interval() const {
         return std::chrono::milliseconds{poll_interval_ms_.load()};
     }
+    // A disabled monitor keeps its thread but skips reading the sensor, so
+    // it dispatches nothing. Disabling clears any active warn/crit state
+    // silently; re-enabling reads immediately and starts again from OK.
+    void  set_enabled(bool enabled);
+    bool  is_enabled() const { return enabled_.load(); }
     float get_threshold_warn() const { return threshold_warn_.load(); }
     float get_threshold_crit() const { return threshold_crit_.load(); }
 
@@ -46,6 +52,8 @@ private:
     std::atomic<float>          threshold_crit_;
     std::atomic<std::chrono::milliseconds::rep> poll_interval_ms_;
     std::atomic<bool>           force_poll_flag_{false};
+    std::atomic<bool>           enabled_;
+    std::atomic<bool>           reset_state_{false};
     std::mutex                  sleep_mtx_;
     std::condition_variable_any sleep_cv_;
     std::jthread                thread_;

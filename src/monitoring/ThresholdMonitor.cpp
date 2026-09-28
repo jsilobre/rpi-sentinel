@@ -12,6 +12,7 @@ ThresholdMonitor::ThresholdMonitor(ISensorReader& sensor, EventBus& bus, Monitor
     , threshold_warn_(config.threshold_warn)
     , threshold_crit_(config.threshold_crit)
     , poll_interval_ms_(config.poll_interval.count())
+    , enabled_(config.enabled)
 {}
 
 ThresholdMonitor::~ThresholdMonitor()
@@ -45,6 +46,17 @@ void ThresholdMonitor::set_poll_interval(std::chrono::milliseconds interval)
     force_poll();
 }
 
+void ThresholdMonitor::set_enabled(bool enabled)
+{
+    // warn/crit_active_ belong to the monitor thread: ask it to clear them
+    // rather than touching them here. The flag survives a quick disable →
+    // enable, so the state is reset even if the thread never saw "disabled".
+    if (!enabled) reset_state_.store(true);
+    enabled_.store(enabled);
+    // Wake the thread: re-enabling reads right away.
+    force_poll();
+}
+
 void ThresholdMonitor::force_poll()
 {
     // Set the flag under the sleep mutex so it can't be set between the
@@ -59,9 +71,14 @@ void ThresholdMonitor::force_poll()
 void ThresholdMonitor::run(std::stop_token stop)
 {
     while (!stop.stop_requested()) {
-        auto result = sensor_.read();
+        if (reset_state_.exchange(false)) {
+            warn_active_ = false;
+            crit_active_ = false;
+        }
 
-        if (!result) {
+        if (!enabled_.load()) {
+            // Nothing to read or report.
+        } else if (auto result = sensor_.read(); !result) {
             std::println("[ThresholdMonitor] read error: {}", static_cast<int>(result.error()));
         } else {
             const float temp      = result->value;

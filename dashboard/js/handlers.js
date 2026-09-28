@@ -1,7 +1,7 @@
 // ── Reading & alert handlers + alert timeline ───────────────────────────────────
 
 function handleReading(sensorId, data) {
-  if (knownSensorIds.size > 0 && !knownSensorIds.has(sensorId)) return;
+  if (!isSensorShown(sensorId)) return;
   if (clearedAt && new Date(data.timestamp).getTime() < clearedAt) return;
   ensureCard(sensorId, data.metric ?? '');
   if (data.metric) sensorMetric[sensorId] = data.metric;

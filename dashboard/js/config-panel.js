@@ -1,4 +1,4 @@
-// ── Configuration panel (poll interval + per-sensor thresholds) ─────────────────
+// ── Configuration panel (poll interval + per-sensor on/off + thresholds) ────────
 
 function renderConfigPanel() {
   renderPollInterval();
@@ -96,20 +96,72 @@ function renderThresholdRows() {
       row.className = 'config-row';
       row.dataset.sensorId = id;
       row.innerHTML = `
-        <span class="config-label"></span>
+        <label class="config-label" title="Uncheck to stop reading this sensor and hide its card">
+          <input type="checkbox" class="config-enabled" id="cfg-en-${sid}">
+          <span class="config-name"></span>
+        </label>
         <span class="config-field">Warn <input class="config-input" type="number" step="0.5" id="cfg-warn-${sid}"></span>
         <span class="config-field">Crit <input class="config-input" type="number" step="0.5" id="cfg-crit-${sid}"></span>
         <button class="config-save-btn" type="button">Save</button>
         <span class="save-feedback" id="cfg-fb-${sid}"></span>`;
-      row.querySelector('.config-label').textContent = id;
+      row.querySelector('.config-name').textContent = id;
       row.querySelector('.config-save-btn').addEventListener('click', () => saveThreshold(id, sid));
+      row.querySelector('.config-enabled').addEventListener('change', e => saveEnabled(id, sid, e.target));
       container.appendChild(row);
     }
     const warnInput = row.querySelector('#cfg-warn-' + sid);
     const critInput = row.querySelector('#cfg-crit-' + sid);
     if (warnInput && warnInput.id !== activeId) warnInput.value = thr.warn.toFixed(1);
     if (critInput && critInput.id !== activeId) critInput.value = thr.crit.toFixed(1);
+
+    // While a toggle awaits its ack, show what was asked, not the old state.
+    const pending = pendingEnableSaves[id];
+    const enabled = pending ? pending.enabled : thr.enabled !== false;
+    row.querySelector('.config-enabled').checked = enabled;
+    row.classList.toggle('config-row-off', !enabled);
+    for (const el of row.querySelectorAll('.config-input, .config-save-btn')) el.disabled = !enabled;
   }
+}
+
+function saveEnabled(sensorId, sid, checkbox) {
+  const fb      = document.getElementById('cfg-fb-' + sid);
+  const enabled = checkbox.checked;
+  fb.title = '';
+  if (!client || !client.connected) {
+    checkbox.checked = !enabled;
+    fb.textContent = 'Offline'; fb.className = 'save-feedback save-err';
+    return;
+  }
+
+  const prev = pendingEnableSaves[sensorId];
+  if (prev && prev.timer) clearTimeout(prev.timer);
+  pendingEnableSaves[sensorId] = { enabled, timer: null };
+  renderThresholdRows();
+  fb.textContent = 'Sending…'; fb.className = 'save-feedback';
+
+  client.publish(
+    `${TOPIC_PREFIX}/config/set`,
+    JSON.stringify({ sensor_id: sensorId, enabled }),
+    { qos: 1, retain: false },
+    err => {
+      if (err) {
+        fb.textContent = 'Error'; fb.className = 'save-feedback save-err';
+        delete pendingEnableSaves[sensorId];
+        renderThresholdRows();
+        return;
+      }
+      const p = pendingEnableSaves[sensorId];
+      if (!p || p.enabled !== enabled) return;  // superseded by a later toggle
+      fb.textContent = 'Sent'; fb.className = 'save-feedback';
+      p.timer = setTimeout(() => {
+        if (pendingEnableSaves[sensorId] === p) {
+          fb.textContent = 'No ack'; fb.className = 'save-feedback save-err';
+          delete pendingEnableSaves[sensorId];
+          renderThresholdRows();  // fall back to the daemon's actual state
+        }
+      }, 5000);
+    }
+  );
 }
 
 function saveThreshold(sensorId, sid) {
@@ -172,6 +224,21 @@ function reconcilePendingSaves() {
     clearTimeout(pendingPollSave.timer);
     setTimeout(() => { fb.textContent = ''; fb.title = ''; }, 3000);
     pendingPollSave = null;
+  }
+
+  for (const [sensorId, p] of Object.entries(pendingEnableSaves)) {
+    const thr = sensorThresholds[sensorId];
+    if (!thr) continue;
+    // A config/current from before the toggle landed still shows the old
+    // state; keep waiting (the timeout reports a missing ack).
+    if ((thr.enabled !== false) !== p.enabled) continue;
+    const fb = document.getElementById('cfg-fb-' + domId(sensorId));
+    if (fb) {
+      fb.textContent = 'Saved'; fb.className = 'save-feedback save-ok';
+      setTimeout(() => { fb.textContent = ''; fb.title = ''; }, 3000);
+    }
+    if (p.timer) clearTimeout(p.timer);
+    delete pendingEnableSaves[sensorId];
   }
 
   for (const [sensorId, p] of Object.entries(pendingSaves)) {

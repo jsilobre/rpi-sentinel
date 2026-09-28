@@ -39,7 +39,8 @@ const charts               = {};
 const history              = {};
 const events               = [];
 const sensorThresholds     = {};
-const knownSensorIds       = new Set();
+const knownSensorIds       = new Set();  // enabled sensors listed in config/current
+const disabledSensorIds    = new Set();  // sensors switched off in the Config panel
 let   lastRpiStatus        = null;
 let   firstConnect         = true;
 const pendingHydrations    = {};  // request_id → sensorId (initial load)
@@ -49,6 +50,7 @@ const hydratedSensors      = new Set();
 let   clearedAt            = 0;   // epoch-ms; readings older than this are dropped
 let   alertsClearedAt      = 0;   // epoch-ms; alerts older than this are dropped
 const pendingSaves         = {};  // sensorId → { warn, crit, fb, sid, timer }
+const pendingEnableSaves   = {};  // sensorId → { enabled, timer } while an on/off change awaits its ack
 let   pollIntervalMs       = null; // daemon's poll interval; null until config/current carries it
 let   pendingPollSave      = null; // { ms, timer } while a poll-interval change awaits its ack
 const chartTimestamps      = {};  // sensorId → array of epoch-ms mirroring chart data (historical modes)
@@ -71,6 +73,16 @@ const palette = [
   { border: '#f97316', bg: 'rgba(249,115,22,0.10)' },
   { border: '#ec4899', bg: 'rgba(236,72,153,0.10)' },
 ];
+
+// Whether a sensor gets a card and its readings are shown. Before the first
+// config/current nothing is known, so everything is accepted; after it, only
+// enabled sensors are. A disabled sensor's last reading is still retained on
+// the broker, hence the explicit check.
+function isSensorShown(sensorId) {
+  if (disabledSensorIds.has(sensorId)) return false;
+  if (knownSensorIds.size === 0 && disabledSensorIds.size === 0) return true;
+  return knownSensorIds.has(sensorId);
+}
 
 // ── Combined (all-sensors) view state ──────────────────────────────────────────
 const sensorMetric   = {};   // sensorId → metric string (drives Y-axis grouping)
