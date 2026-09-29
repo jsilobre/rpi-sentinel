@@ -60,6 +60,7 @@ test('index.html keeps the deploy-time placeholders', () => {
 // Load state + the pure-helper modules into a shared sandbox and expose what we test.
 function loadHelpers() {
   const store = {};
+  const media = {};  // media query -> whether it matches (window.matchMedia stub)
   const sandbox = {
     console,
     crypto: globalThis.crypto,
@@ -68,6 +69,7 @@ function loadHelpers() {
       setItem: (k, v) => { store[k] = String(v); },
       removeItem: (k) => { delete store[k]; },
     },
+    matchMedia: (q) => ({ matches: !!media[q] }),
     // Browser globals touched at load time by these files.
     ResizeObserver: class { observe() {} unobserve() {} disconnect() {} },
   };
@@ -81,13 +83,15 @@ function loadHelpers() {
       domId, escapeHtml, fmt, newRequestId, statusBadge, snapshotToEvents,
       parsePollIntervalSeconds, isSensorShown, knownSensorIds, disabledSensorIds,
       unitFor, axisTitle, gridColumns, positionCardInGrid,
+      allowPanStart, isStackedLayout, saveLayout, placeCard, nextCardInOrder,
+      STACKED_LAYOUT_QUERY, LAYOUT_KEY,
       setWindow: (w) => { currentWindow = w; },
       WINDOWS,
     };
   `;
   const src = [CONFIG_PRELUDE, ...files.map(read), epilogue].join('\n;\n');
   vm.runInContext(src, ctx, { filename: 'helpers-bundle.js' });
-  return ctx.__T__;
+  return { ...ctx.__T__, media, store };
 }
 
 const H = loadHelpers();
@@ -130,6 +134,69 @@ test('positionCardInGrid places a card in the right slot', () => {
   H.positionCardInGrid(card, 4, 3); // index 4, 3 cols -> col 1, row 1
   assert.equal(card.style.left, '392px');  // 1 * (380 + 12)
   assert.equal(card.style.top, '312px');   // 1 * (300 + 12)
+});
+
+test('isStackedLayout follows STACKED_LAYOUT_QUERY', () => {
+  assert.equal(H.isStackedLayout(), false);
+  H.media[H.STACKED_LAYOUT_QUERY] = true;
+  assert.equal(H.isStackedLayout(), true);
+  delete H.media[H.STACKED_LAYOUT_QUERY];
+});
+
+test('styles.css stacks the cards at the width STACKED_LAYOUT_QUERY names', () => {
+  // The JS query (no dragging, no layout saving) and the CSS block (cards in
+  // normal flow) must switch together, or cards would be dragged while stacked.
+  const css   = read('styles.css');
+  const start = css.indexOf(`@media ${H.STACKED_LAYOUT_QUERY}{`);
+  assert.ok(start >= 0, `no @media ${H.STACKED_LAYOUT_QUERY} block in styles.css`);
+  assert.match(css.slice(start, css.indexOf('\n}', start)), /\.sensors-grid \.card\{position:static/);
+});
+
+test('saveLayout leaves the free-form layout alone while stacked', () => {
+  // Saving the stacked (CSS-driven) geometry would overwrite the layout the
+  // user arranged on a wider window. It must return before touching the DOM,
+  // which this sandbox does not have.
+  const saved = JSON.stringify({ temp1: { left: 392, top: 0, width: 380, height: 300 } });
+  H.store[H.LAYOUT_KEY] = saved;
+  H.media[H.STACKED_LAYOUT_QUERY] = true;
+  assert.doesNotThrow(() => H.saveLayout());
+  assert.equal(H.store[H.LAYOUT_KEY], saved);
+  delete H.media[H.STACKED_LAYOUT_QUERY];
+  delete H.store[H.LAYOUT_KEY];
+});
+
+test('placeCard keeps a saved layout unclamped while stacked', () => {
+  // Clamping to a narrow stacked grid would be saved back once the window
+  // widens, losing the arrangement; while stacked the CSS ignores it anyway.
+  H.store[H.LAYOUT_KEY] = JSON.stringify({ temp1: { left: 800, top: 312, width: 380, height: 300 } });
+  const card = () => ({ style: {}, parentElement: { clientWidth: 350 } });
+
+  const wide = card();
+  H.placeCard(wide, 'temp1', 0);                 // free-form: fit the 350px grid
+  assert.deepEqual({ ...wide.style }, { left: '0px', top: '312px', width: '350px', height: '300px' });
+
+  H.media[H.STACKED_LAYOUT_QUERY] = true;
+  const stacked = card();
+  H.placeCard(stacked, 'temp1', 0);              // stacked: saved values as-is
+  assert.deepEqual({ ...stacked.style }, { left: '800px', top: '312px', width: '380px', height: '300px' });
+  delete H.media[H.STACKED_LAYOUT_QUERY];
+  delete H.store[H.LAYOUT_KEY];
+});
+
+test('nextCardInOrder keeps sensor cards in alphabetical DOM order', () => {
+  const card  = (id) => ({ dataset: { sensorId: id } });
+  const cards = [card('cpu'), card('dht_hum'), card('temp1')];
+  assert.equal(H.nextCardInOrder(cards, 'aaa'), cards[0]);
+  assert.equal(H.nextCardInOrder(cards, 'dht_temp'), cards[2]);
+  assert.equal(H.nextCardInOrder(cards, 'zzz'), null);   // append
+  assert.equal(H.nextCardInOrder([], 'cpu'), null);
+});
+
+test('allowPanStart refuses one-finger touch pans only', () => {
+  assert.equal(H.allowPanStart({ event: { pointerType: 'touch' } }), false);
+  assert.equal(H.allowPanStart({ event: { pointerType: 'mouse' } }), true);
+  assert.equal(H.allowPanStart({ event: { pointerType: 'pen' } }), true);
+  assert.equal(H.allowPanStart({}), true);
 });
 
 test('newRequestId returns distinct non-empty ids', () => {

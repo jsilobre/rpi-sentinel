@@ -28,6 +28,31 @@ function updateRefreshButtonState() {
   btn.title = online ? 'Force immediate sensor poll' : 'Disconnected — refresh unavailable';
 }
 
+// ── Header "⋯" menu (narrow screens) ────────────────────────────────────────────
+// Below the compact-header breakpoint (styles.css) the secondary actions live in
+// a dropdown; on wider screens #header-actions is an inline group and the
+// toggle is hidden, so this wiring has no visible effect there.
+const menuBtn       = document.getElementById('menu-btn');
+const headerActions = document.getElementById('header-actions');
+function setMenuOpen(open) {
+  headerActions.classList.toggle('open', open);
+  menuBtn.setAttribute('aria-expanded', String(open));
+}
+menuBtn.addEventListener('click', () => setMenuOpen(!headerActions.classList.contains('open')));
+// Picking an action closes the menu (its own handler has already run by the
+// time the click bubbles here), as does a tap outside it or Escape.
+headerActions.addEventListener('click', e => { if (e.target.closest('button')) setMenuOpen(false); });
+document.addEventListener('click', e => {
+  if (!headerActions.classList.contains('open')) return;
+  if (e.target.closest('#header-actions, #menu-btn')) return;
+  setMenuOpen(false);
+});
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Escape' || !headerActions.classList.contains('open')) return;
+  setMenuOpen(false);
+  menuBtn.focus();
+});
+
 // ── Organize sensors alphabetically ─────────────────────────────────────────────
 document.getElementById('organize-btn').addEventListener('click', organizeSensors);
 
@@ -35,13 +60,14 @@ document.getElementById('organize-btn').addEventListener('click', organizeSensor
 document.getElementById('refresh-btn').addEventListener('click', () => {
   const btn = document.getElementById('refresh-btn');
   if (!client || !client.connected) return;
+  const label = btn.querySelector('.btn-label');
   btn.dataset.busy = '1';
   btn.disabled = true;
-  btn.textContent = '↻ Refreshing…';
+  label.textContent = 'Refreshing…';
   client.publish(`${TOPIC_PREFIX}/cmd/refresh`, '{}', { qos: 1, retain: false });
   setTimeout(() => {
     btn.dataset.busy = '';
-    btn.textContent = '↻ Refresh';
+    label.textContent = 'Refresh';
     updateRefreshButtonState();
   }, 2000);
 });

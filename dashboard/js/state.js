@@ -102,3 +102,7 @@ const LAYOUT_KEY      = 'rpi-sentinel-layout';
 const DEFAULT_CARD_W  = 380;
 const DEFAULT_CARD_H  = 300;
 const LAYOUT_GAP      = 12;
+// At or below this width the free-form layout is set aside: cards stack at full
+// width in DOM order (alphabetical), and cannot be dragged or resized. Must match
+// the `@media` block in styles.css that does the stacking.
+const STACKED_LAYOUT_QUERY = '(max-width: 700px)';

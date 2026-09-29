@@ -84,14 +84,18 @@ function ensureCard(sensorId, metric) {
       <span>min <b>--</b></span><span>avg <b>--</b></span><span>max <b>--</b></span>
     </div>
     <div class="chart-wrap"><canvas id="chart-${sid}"></canvas></div>
-    <div class="chart-hint">Scroll to zoom &middot; Drag chart to pan &middot; Drag header to move &middot; Drag corner to resize</div>
+    <div class="chart-hint">
+      <span class="hint-mouse">Scroll to zoom &middot; Drag chart to pan<span class="hint-layout"> &middot; Drag header to move &middot; Drag corner to resize</span></span>
+      <span class="hint-touch">Pinch to zoom &middot; Touch the chart to read values</span>
+    </div>
   `;
   card.querySelector('.sensor-name').textContent = sensorId;
   card.querySelector('.metric-tag').textContent  = metric;
   card.querySelector('.reset-zoom-btn').addEventListener('click', () => resetZoom(sensorId));
   const grid = document.getElementById('sensors-grid');
-  const existingBefore = grid.querySelectorAll('.card[data-sensor-id]').length;
-  grid.appendChild(card);
+  const existingCards  = Array.from(grid.querySelectorAll('.card[data-sensor-id]'));
+  const existingBefore = existingCards.length;
+  grid.insertBefore(card, nextCardInOrder(existingCards, sensorId));
   placeCard(card, sensorId, existingBefore);
   makeDraggable(card);
   cardResizeObserver.observe(card);
@@ -163,7 +167,7 @@ function ensureCard(sensorId, metric) {
               if (btn) btn.style.display = 'inline-block';
             }
           },
-          pan: { enabled: true, mode: 'x' }
+          pan: { enabled: true, mode: 'x', onPanStart: allowPanStart }
         },
         annotation: { annotations: {} }
       },

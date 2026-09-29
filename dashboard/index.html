@@ -13,17 +13,21 @@
 </head>
 <body>
   <header class="topbar">
-    <div class="brand"><span class="logo">S</span>RPi Sentinel</div>
+    <div class="brand"><span class="logo">S</span><span class="brand-name">RPi Sentinel</span></div>
     <div class="conn"><span class="dot" id="conn-dot"></span><span id="conn-label">Connecting…</span></div>
     <div class="spacer"></div>
     <span class="updated" id="updated"></span>
-    <button class="icon-btn" id="refresh-btn" title="Force immediate sensor poll" disabled>↻ Refresh</button>
-    <button class="icon-btn" id="viewmode-btn" title="Switch between per-sensor cards and a single combined graph">▦ Combined</button>
-    <button class="icon-btn" id="organize-btn" title="Arrange sensor windows alphabetically">⊞ Organize</button>
-    <button class="icon-btn" id="config-btn" title="Configure poll interval, sensors and thresholds">⚙ Config</button>
-    <button class="icon-btn" id="export-btn" title="Cloud storage required to export" disabled>⬇ Export CSV</button>
-    <button class="icon-btn danger" id="clear-btn" title="Delete all stored history">🗑 Clear Data</button>
-    <button class="icon-btn" id="theme-btn" title="Toggle theme">☾</button>
+    <button class="icon-btn" id="refresh-btn" title="Force immediate sensor poll" disabled><span aria-hidden="true">↻</span><span class="btn-label">Refresh</span></button>
+    <!-- On narrow screens the secondary actions collapse into this "⋯" menu. -->
+    <button class="icon-btn menu-toggle" id="menu-btn" type="button" title="More actions" aria-label="More actions" aria-expanded="false" aria-controls="header-actions">⋯</button>
+    <div class="header-actions" id="header-actions">
+      <button class="icon-btn" id="viewmode-btn" title="Switch between per-sensor cards and a single combined graph">▦ Combined</button>
+      <button class="icon-btn" id="organize-btn" title="Arrange sensor windows alphabetically">⊞ Organize</button>
+      <button class="icon-btn" id="config-btn" title="Configure poll interval, sensors and thresholds">⚙ Config</button>
+      <button class="icon-btn" id="export-btn" title="Cloud storage required to export" disabled>⬇ Export CSV</button>
+      <button class="icon-btn danger" id="clear-btn" title="Delete all stored history">🗑 Clear Data</button>
+      <button class="icon-btn" id="theme-btn" title="Toggle theme" data-menu-label="Theme">☾</button>
+    </div>
   </header>
 
   <div class="time-bar" id="time-bar">
@@ -36,11 +40,9 @@
     <button class="time-btn" data-w="30d"  data-cloud="1" type="button" style="display:none">1mo</button>
     <button class="time-btn" data-w="180d" data-cloud="1" type="button" style="display:none">6mo</button>
     <button class="time-btn" data-w="365d" data-cloud="1" type="button" style="display:none">1y</button>
-    <span id="custom-range-wrap" style="display:none;align-items:center;gap:6px;margin-left:8px">
-      <span style="font-size:11px;color:var(--muted)">From</span>
-      <input type="datetime-local" id="custom-from" class="config-input" style="padding:2px 6px;font-size:11px;width:155px">
-      <span style="font-size:11px;color:var(--muted)">To</span>
-      <input type="datetime-local" id="custom-to"   class="config-input" style="padding:2px 6px;font-size:11px;width:155px">
+    <span class="custom-range" id="custom-range-wrap" style="display:none">
+      <label class="range-field">From <input type="datetime-local" id="custom-from" class="config-input range-input"></label>
+      <label class="range-field">To <input type="datetime-local" id="custom-to" class="config-input range-input"></label>
       <button class="time-btn" id="custom-apply-btn" type="button">Apply</button>
     </span>
   </div>
@@ -59,7 +61,10 @@
             <button class="reset-zoom-btn" id="reset-zoom-combined" type="button">&#8635; Reset</button>
           </div>
           <div class="chart-wrap"><canvas id="combined-chart"></canvas></div>
-          <div class="chart-hint">Click a legend entry to toggle a sensor &middot; Scroll to zoom &middot; Drag to pan</div>
+          <div class="chart-hint">
+            <span class="hint-mouse">Click a legend entry to toggle a sensor &middot; Scroll to zoom &middot; Drag to pan</span>
+            <span class="hint-touch">Tap a legend entry to toggle a sensor &middot; Pinch to zoom</span>
+          </div>
         </div>
       </div>
     </section>

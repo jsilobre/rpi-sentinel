@@ -78,7 +78,7 @@ function ensureCombinedChart() {
               if (btn) btn.style.display = 'inline-block';
             }
           },
-          pan: { enabled: true, mode: 'x' }
+          pan: { enabled: true, mode: 'x', onPanStart: allowPanStart }
         }
       },
       scales: {

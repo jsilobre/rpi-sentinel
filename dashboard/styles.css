@@ -23,29 +23,34 @@ html,body{height:100%}
 body{font-family:system-ui,-apple-system,"Segoe UI",sans-serif;background:var(--bg);color:var(--text);font-size:13px;line-height:1.4}
 
 header.topbar{position:sticky;top:0;z-index:10;display:flex;align-items:center;gap:12px;
-  padding:10px 20px;background:var(--surface);border-bottom:1px solid var(--border);}
+  padding:10px 20px;background:var(--surface);border-bottom:1px solid var(--border);
+  flex-wrap:wrap;justify-content:flex-end;row-gap:8px}
 .brand{display:flex;align-items:center;gap:8px;font-weight:600;color:var(--text);font-size:14px}
 .brand .logo{width:22px;height:22px;border-radius:6px;background:linear-gradient(135deg,var(--accent),#6366f1);
   display:inline-flex;align-items:center;justify-content:center;color:#fff;font-size:11px;font-weight:700}
-.conn{display:flex;align-items:center;gap:8px;padding:3px 10px;border-radius:9999px;
+.conn{display:flex;align-items:center;gap:8px;padding:3px 10px;border-radius:9999px;min-width:0;
   background:var(--surface-2);border:1px solid var(--border);font-size:11.5px;color:var(--muted)}
+#conn-label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .dot{width:8px;height:8px;border-radius:50%;background:#94a3b8;transition:background .3s}
 .dot.connected{background:var(--ok-line);animation:pulse 2s infinite}
 .dot.rpi_offline{background:var(--warn-line)}
 .dot.error{background:var(--err-line)}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
 .spacer{flex:1}
-.icon-btn{background:var(--surface-2);border:1px solid var(--border);color:var(--muted);
+.icon-btn{background:var(--surface-2);border:1px solid var(--border);color:var(--muted);white-space:nowrap;
   padding:5px 10px;border-radius:6px;font-size:12px;cursor:pointer;display:inline-flex;align-items:center;gap:6px}
 .icon-btn:hover{color:var(--text);border-color:var(--muted-2)}
 .icon-btn.danger{color:var(--err-fg);border-color:var(--err-bg)}
 .icon-btn.danger:hover{background:var(--err-bg);border-color:var(--err-fg)}
 .icon-btn.small{padding:2px 8px;font-size:11px}
 .icon-btn.small:disabled{opacity:.5;cursor:default;pointer-events:none}
-.updated{font-size:11px;color:var(--muted-2);margin-right:4px}
+.updated{font-size:11px;color:var(--muted-2);margin-right:4px;white-space:nowrap}
+.updated:not(:empty)::before{content:'Updated '}
+.header-actions{display:flex;align-items:center;gap:12px;flex-wrap:wrap;justify-content:flex-end}
+.menu-toggle{display:none;font-size:16px;line-height:1}
 
 main{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:16px;padding:16px 20px;align-items:start}
-@media (max-width: 900px){ main{grid-template-columns:1fr} }
+@media (max-width: 900px){ main{grid-template-columns:minmax(0,1fr)} }
 
 .section-title{font-size:10.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;
   font-weight:600;display:flex;align-items:center;gap:8px;margin:0 4px 8px}
@@ -79,6 +84,10 @@ main{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:16px;padding:16p
 .sensors-grid .card{position:absolute;display:flex;flex-direction:column;resize:both;overflow:hidden;min-height:200px;min-width:280px}
 .chart-wrap{flex:1;min-height:60px}
 canvas{display:block;width:100%!important;height:100%!important}
+/* Hammer (pinch zoom) sets touch-action:none on the canvas, which stops a swipe
+   over a chart from scrolling the page. pan-y hands vertical swipes back to the
+   browser; pinches still reach the chart. */
+.chart-wrap canvas{touch-action:pan-y!important}
 
 /* Right rail — alerts */
 .rail .card{padding:0;overflow:hidden}
@@ -138,15 +147,77 @@ label.config-label{cursor:pointer}
   border-radius:6px;padding:3px 11px;font-size:11.5px;font-weight:600;cursor:pointer}
 .time-btn:hover{color:var(--text);border-color:var(--muted-2)}
 .time-btn.active{background:var(--accent);color:#fff;border-color:var(--accent)}
+.custom-range{align-items:center;gap:6px;margin-left:8px;flex-wrap:wrap}
+.range-field{display:inline-flex;align-items:center;gap:6px;font-size:11px;color:var(--muted)}
+.range-input{width:155px;padding:2px 6px;font-size:11px}
 /* Reset zoom button inside sensor cards */
 .reset-zoom-btn{display:none;background:var(--surface-2);color:var(--muted);
   border:1px solid var(--border);border-radius:4px;padding:2px 7px;font-size:10px;cursor:pointer;margin-left:auto}
 .reset-zoom-btn:hover{color:var(--text)}
 /* Chart hint */
 .chart-hint{font-size:10px;color:var(--muted-2);margin-top:3px;text-align:right;user-select:none}
+.hint-touch{display:none}
 /* Combined (all-sensors) view */
 .combined-card{display:flex;flex-direction:column;height:560px;overflow:hidden}
 .combined-head{display:flex;align-items:center;gap:8px;margin-bottom:8px}
 /* Scrollbar */
 .event-list::-webkit-scrollbar,.modal-body::-webkit-scrollbar{width:8px}
 .event-list::-webkit-scrollbar-thumb,.modal-body::-webkit-scrollbar-thumb{background:var(--border);border-radius:8px}
+
+/* ── Narrow screens ─────────────────────────────────────────────────────────── */
+/* Compact header: the secondary actions collapse into the "⋯" menu (main.js). */
+@media (max-width: 900px){
+  header.topbar{flex-wrap:nowrap;gap:8px}
+  .updated:not(:empty)::before{content:none}
+  #refresh-btn .btn-label{display:none}
+  .menu-toggle{display:inline-flex}
+  .header-actions{display:none;position:absolute;top:calc(100% + 4px);right:20px;z-index:20;
+    flex-direction:column;align-items:stretch;gap:2px;min-width:200px;padding:6px;
+    background:var(--surface);border:1px solid var(--border);border-radius:10px;
+    box-shadow:0 12px 40px rgba(15,23,42,.18)}
+  .header-actions.open{display:flex}
+  .header-actions .icon-btn{justify-content:flex-start;gap:10px;min-height:40px;padding:0 12px;
+    border-color:transparent;background:none;font-size:13px}
+  .header-actions .icon-btn:hover{background:var(--surface-2)}
+  .header-actions .icon-btn:disabled{opacity:.5;cursor:default}
+  #theme-btn::after{content:attr(data-menu-label)}
+}
+/* Stacked cards: the free-form layout is set aside. Keep the width in sync with
+   STACKED_LAYOUT_QUERY in state.js, which turns off dragging and layout saving. */
+@media (max-width: 700px){
+  header.topbar,.time-bar{padding-left:12px;padding-right:12px}
+  .header-actions{right:12px}
+  main{padding:12px}
+  .sensors-grid{display:flex;flex-direction:column;gap:12px;min-height:0!important}
+  .sensors-grid .card{position:static;width:auto!important;height:300px!important;min-width:0;resize:none}
+  .sensor-head{cursor:default;touch-action:auto}
+  #organize-btn,.hint-layout{display:none}
+  .custom-range{margin-left:0;flex-basis:100%}
+  .range-field{flex:1 1 220px}
+  .range-input{flex:1;width:auto;min-width:0}
+  .modal-backdrop{padding:12px}
+  /* Config rows on two lines: name + feedback, then Warn / Crit / Save. */
+  .config-row{grid-template-columns:1fr 1fr auto;row-gap:8px}
+  .config-row>.config-label{grid-column:1 / 3}
+  .config-row>.save-feedback{grid-row:1;grid-column:3}
+  .config-row-general{grid-template-columns:1fr auto}
+  .config-row-general>.config-label{grid-column:1}
+  .config-row-general>.save-feedback{grid-column:2}
+}
+@media (max-width: 460px){
+  .brand-name{display:none}
+}
+/* Touch screens: larger tap targets, 16px inputs (smaller ones make iOS Safari
+   zoom in on focus) and touch wording in the chart hints. */
+@media (pointer: coarse){
+  .icon-btn,.time-btn,.config-save-btn{min-height:40px;min-width:40px}
+  .icon-btn{justify-content:center}
+  .icon-btn.small{min-height:36px}
+  .reset-zoom-btn{padding:8px 12px;font-size:12px}
+  .config-input{font-size:16px;min-height:40px}
+  .range-input{width:auto}
+  .config-enabled{width:20px;height:20px}
+  .modal-close{min-width:44px;min-height:44px}
+  .hint-mouse{display:none}
+  .hint-touch{display:inline}
+}

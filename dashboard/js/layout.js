@@ -5,7 +5,15 @@ function loadLayout() {
   catch { return {}; }
 }
 
+// Whether the narrow-screen stacked layout is active (see STACKED_LAYOUT_QUERY).
+function isStackedLayout() {
+  return typeof window.matchMedia === 'function' && window.matchMedia(STACKED_LAYOUT_QUERY).matches;
+}
+
 function saveLayout() {
+  // Stacked geometry comes from CSS; saving it would overwrite the free-form
+  // layout arranged on a wider window.
+  if (isStackedLayout()) return;
   const layout = loadLayout();
   document.querySelectorAll('.card[data-sensor-id]').forEach(c => {
     layout[c.dataset.sensorId] = {
@@ -33,11 +41,21 @@ function positionCardInGrid(card, index, cols) {
   card.style.height = DEFAULT_CARD_H + 'px';
 }
 
+// The card a new sensor's card is inserted before (null = append), so the DOM
+// order stays alphabetical: that is the order the stacked layout shows.
+function nextCardInOrder(cards, sensorId) {
+  return cards.find(c => c.dataset.sensorId.localeCompare(sensorId) > 0) || null;
+}
+
 function placeCard(card, sensorId, existingCount) {
   const saved = loadLayout()[sensorId];
   if (saved) {
     const grid = card.parentElement;
-    const containerWidth = (grid && grid.clientWidth) || window.innerWidth || 1200;
+    // While stacked, CSS ignores these values: apply them unclamped so the
+    // arrangement is intact when the window widens again.
+    const containerWidth = isStackedLayout()
+      ? Infinity
+      : (grid && grid.clientWidth) || window.innerWidth || 1200;
     const width  = Math.max(280, Math.min(saved.width  ?? DEFAULT_CARD_W, containerWidth));
     const height = Math.max(200, saved.height ?? DEFAULT_CARD_H);
     const left   = Math.max(0, Math.min(saved.left ?? 0, Math.max(0, containerWidth - width)));
@@ -67,6 +85,7 @@ function makeDraggable(card) {
   const head = card.querySelector('.sensor-head');
   if (!head) return;
   head.addEventListener('pointerdown', e => {
+    if (isStackedLayout()) return;
     if (e.pointerType === 'mouse' && e.button !== 0) return;
     if (e.target.closest('button, input, select, a, label')) return;
     const grid     = card.parentElement;
