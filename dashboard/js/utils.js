@@ -41,6 +41,13 @@ function hideResetZoom(sensorId) {
   if (btn) btn.style.display = 'none';
 }
 
+// chartjs-plugin-zoom `pan.onPanStart`: refuse one-finger pans on touch screens
+// so a swipe over a chart scrolls the page (and a horizontal drag moves the
+// tooltip) instead. Mouse drag still pans; pinch-to-zoom is unaffected.
+function allowPanStart({ event }) {
+  return !event || event.pointerType !== 'touch';
+}
+
 // Poll-interval input (seconds, as typed) → integer milliseconds, or null when
 // it isn't a number within the daemon's accepted range (1 s – 1 h).
 const POLL_MIN_MS = 1000;

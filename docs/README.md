@@ -8,6 +8,7 @@ Technical reference for current and future development.
 | [workflow.md](workflow.md) | Data flow, event lifecycle, threading model |
 | [build-guide.md](build-guide.md) | Build, tests, CI/CD, RPi deployment |
 | [persistence.md](persistence.md) | History storage (SQLite), MQTT history-on-demand |
+| [dashboard.md](dashboard.md) | Web dashboard: files, deployment, features, responsive/touch layout, MQTT messages, tests |
 | [../companion/](../companion/) | Claude usage publisher — Pi-side sidecar that publishes Claude Code usage to the same broker for `rpi-sentinel-display` |
 
 ## Quick overview

@@ -48,7 +48,8 @@ function handleReading(sensorId, data) {
 
   updateStats(sensorId);
   syncCombined();
-  document.getElementById('updated').textContent = 'Updated ' + new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', second:'2-digit', hour12: false});
+  // The "Updated " prefix is CSS-generated so narrow screens can drop it.
+  document.getElementById('updated').textContent = new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', second:'2-digit', hour12: false});
 }
 
 // Show the alert level the daemon attaches to each reading. Readings are
