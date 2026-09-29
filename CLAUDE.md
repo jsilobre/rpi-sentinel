@@ -17,6 +17,7 @@ Detailed technical references live in `docs/`:
 | `docs/build-guide.md` | CMake dependency graph, cross-compilation, RPi hardware setup, adding a test |
 | `docs/persistence.md` | SQLite schema & PRAGMAs, rotation policy, MQTT history-on-demand protocol, failure modes |
 | `docs/cloudflare-setup.md` | Cloudflare Worker + D1 setup, deployment, RPi daemon configuration, end-to-end test |
+| `docs/dashboard.md` | Web dashboard: script layout, deploy config & broker ACL, UI features, responsive/touch behaviour, MQTT messages, localStorage keys, tests |
 
 ## Build Commands
 
