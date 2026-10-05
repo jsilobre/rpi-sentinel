@@ -244,7 +244,7 @@ test('WINDOWS separates rollup bucketing from cloud-only and label concerns', ()
   }
 
   // Short windows stay raw on both paths.
-  for (const w of ['1h', '6h', '24h']) {
+  for (const w of ['1h', '6h', '12h', '24h']) {
     assert.equal(W[w].bucketMs, undefined, `${w} should stay raw`);
     assert.equal(W[w].cloudBucketMs, undefined, `${w} should stay raw`);
   }

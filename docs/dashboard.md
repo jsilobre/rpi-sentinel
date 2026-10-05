@@ -116,7 +116,7 @@ or shows that sensor; the choice is remembered.
 | Window | Without Worker (MQTT, Pi online) | With Worker (`GET /history`) |
 |---|---|---|
 | Live | Last 120 readings: hydrated from the Pi's SQLite, then live | same (Live always uses MQTT) |
-| 1h / 6h / 24h | Raw points, up to 500 | Raw points, up to 500 |
+| 1h / 6h / 12h / 24h | Raw points, up to 500 | Raw points, up to 500 |
 | 7d | Raw points, up to 500 | Hourly buckets (avg + min/max band) |
 | 1mo / 6mo / 1y | hidden | 1 h / 6 h / 1 day buckets |
 | Custom (From/To) | hidden | Raw up to 2000 points for ≤ 24 h, otherwise buckets of ≥ 1 h (~1000 points) |
