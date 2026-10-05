@@ -28,6 +28,7 @@ const MAX_EVENTS  = 50;
 const WINDOWS = {
   '1h':   { ms: 3_600_000,      labels: 'time' },
   '6h':   { ms: 21_600_000,     labels: 'time' },
+  '12h':  { ms: 43_200_000,     labels: 'datetime' },
   '24h':  { ms: 86_400_000,     labels: 'datetime' },
   '7d':   { ms: 604_800_000,    labels: 'datetime',  cloudBucketMs: 3_600_000 },   // 1h buckets → ~168 pts
   '30d':  { ms: 2_592_000_000,  labels: 'date',      bucketMs: 3_600_000,  cloudOnly: true },  // 1h → ~720 pts
