@@ -56,6 +56,17 @@ test('index.html keeps the deploy-time placeholders', () => {
   }
 });
 
+test('custom From/To fields start folded behind the Custom button', () => {
+  const html = read('index.html');
+  const toggle = html.match(/<button[^>]*id="custom-toggle-btn"[^>]*>/s);
+  assert.ok(toggle, 'missing Custom toggle button');
+  assert.match(toggle[0], /aria-controls="custom-range-wrap"/);
+  assert.match(toggle[0], /aria-expanded="false"/);
+  // No data-w: the window delegation and setWindow must not treat it as a window.
+  assert.doesNotMatch(toggle[0], /data-w=/);
+  assert.match(html, /id="custom-range-wrap"[^>]*style="display:none"/);
+});
+
 // ── Behavioural checks on the pure helpers ───────────────────────────────────────
 // Load state + the pure-helper modules into a shared sandbox and expose what we test.
 function loadHelpers() {

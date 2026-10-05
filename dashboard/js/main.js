@@ -155,8 +155,18 @@ document.getElementById('time-bar').addEventListener('click', e => {
 });
 
 // ── Custom time range (only shown when CLOUD_ENABLED) ────────────────────────────
+// The From/To fields sit behind the Custom button so they don't take a row of
+// their own (two on a phone) until they're wanted.
 if (CLOUD_ENABLED) {
-  document.getElementById('custom-range-wrap').style.display = 'flex';
+  const customToggle = document.getElementById('custom-toggle-btn');
+  const customWrap   = document.getElementById('custom-range-wrap');
+  const setCustomOpen = open => {
+    customWrap.style.display = open ? 'flex' : 'none';
+    customToggle.setAttribute('aria-expanded', String(open));
+  };
+  customToggle.style.display = '';
+  customToggle.addEventListener('click', () =>
+    setCustomOpen(customWrap.style.display === 'none'));
   // The 1mo / 6mo / 1y windows are Cloudflare-only (no MQTT equivalent).
   document.querySelectorAll('.time-btn[data-cloud]').forEach(b => { b.style.display = ''; });
 
@@ -168,9 +178,11 @@ if (CLOUD_ENABLED) {
     const toMs   = new Date(toVal).getTime();
     if (isNaN(fromMs) || isNaN(toMs) || fromMs >= toMs) return;
 
-    // Deactivate fixed-window buttons for visual clarity.
+    // Deactivate fixed-window buttons and mark Custom as the active window;
+    // fold the fields away again; the values are kept for the next open.
     document.querySelectorAll('.time-btn[data-w]').forEach(b => b.classList.remove('active'));
-    document.getElementById('custom-apply-btn').classList.add('active');
+    customToggle.classList.add('active');
+    setCustomOpen(false);
 
     // Ranges wider than 24h are down-sampled (banded) so the response stays
     // small; pick a bucket (>= 1h) that keeps it to roughly 1000 points.
