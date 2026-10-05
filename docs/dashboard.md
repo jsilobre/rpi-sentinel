@@ -121,6 +121,10 @@ or shows that sensor; the choice is remembered.
 | 1mo / 6mo / 1y | hidden | 1 h / 6 h / 1 day buckets |
 | Custom (From/To) | hidden | Raw up to 2000 points for ≤ 24 h, otherwise buckets of ≥ 1 h (~1000 points) |
 
+**Custom** opens the From/To fields (they stay folded away otherwise, to save
+room, especially on a phone). **Apply** loads the range, highlights Custom and
+folds the fields again; reopening Custom shows the last values.
+
 In a historical window, new live readings are appended and points older than
 the window are dropped; banded views are not appended to. Zoom and pan reset
 when the window changes.
