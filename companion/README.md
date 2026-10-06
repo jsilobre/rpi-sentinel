@@ -11,7 +11,11 @@ ESP32 display never receives any Claude credential, it only subscribes to MQTT.
 1. Every `POLL_SECONDS`, the script calls Anthropic's OAuth usage endpoint
    (`https://api.anthropic.com/api/oauth/usage`) — the same one Claude Code's
    `/usage` screen reads — authenticating with the OAuth token from
-   `~/.claude/.credentials.json` (or `CLAUDE_OAUTH_TOKEN`).
+   `~/.claude/.credentials.json`. When that token has expired (or is rejected
+   with 401), the script asks Claude Code to refresh it — first with
+   `claude auth status`, then if needed with a one-line Haiku request in print
+   mode — and re-reads the file. Claude Code writes the rotated token itself,
+   so the script never touches the refresh token.
 2. It maps the response's `five_hour` / `seven_day` windows to the display
    contract.
 3. It publishes (retained, QoS 1) to `"<MQTT_PREFIX>/claude/usage"`, on the same
@@ -31,9 +35,10 @@ Because the numbers come from the account-wide endpoint, they reflect usage from
 
 ## Prerequisites
 
-- A logged-in Claude Code on this machine (for `~/.claude/.credentials.json`),
-  **or** a long-lived token in `CLAUDE_OAUTH_TOKEN` (from `claude setup-token`,
-  valid 1 year).
+- A logged-in Claude Code on this machine (for `~/.claude/.credentials.json`
+  and the `claude` CLI used to refresh it). A token from `claude setup-token`
+  does **not** work: it only has the `user:inference` scope, and the usage
+  endpoint requires `user:profile` (HTTP 403).
 - Python 3.9+.
 
 ## Install & run
@@ -49,8 +54,6 @@ export MQTT_PASS=yourpass
 export MQTT_PREFIX=rpi        # must match the display's topic prefix
 export MQTT_TLS=true
 export POLL_SECONDS=600
-# Optional: if this Pi never runs `claude`, use a long-lived token instead:
-# export CLAUDE_OAUTH_TOKEN=$(claude setup-token)
 
 python3 usage_publisher.py
 ```
@@ -83,8 +86,9 @@ journalctl -u usage-publisher -f
 | `MQTT_PREFIX`        | `rpi`                            | Topic prefix; must match the display config       |
 | `MQTT_TLS`           | `true`                           | Use TLS (insecure verify, like the display)       |
 | `POLL_SECONDS`       | `600`                            | Poll/publish interval; keep at 10 min or above — the endpoint rate-limits (HTTP 429) |
-| `CLAUDE_OAUTH_TOKEN` | — (off)                          | Long-lived token from `claude setup-token`; tried first, credentials file used if it is rejected |
+| `CLAUDE_OAUTH_TOKEN` | — (off)                          | Token override with the `user:profile` scope; tried first, credentials file used if it is rejected |
 | `CLAUDE_CREDENTIALS` | `~/.claude/.credentials.json`    | Path to Claude Code's credentials file            |
+| `CLAUDE_BIN`         | `claude` on `PATH`, else `~/.local/bin/claude` | CLI invoked to refresh an expired token |
 
 ## Caveats / honesty
 
@@ -92,10 +96,12 @@ journalctl -u usage-publisher -f
   not a formally documented public API, so its shape (`five_hour` / `seven_day`,
   `utilization`, `resets_at`) may change. Parsing degrades gracefully (a missing
   window is simply omitted from the payload).
-- The access token in `~/.claude/.credentials.json` expires and is rotated by
-  Claude Code; the script re-reads the file on every poll to pick up rotations.
-  If this Pi never runs `claude`, set `CLAUDE_OAUTH_TOKEN` from
-  `claude setup-token` instead.
+- The access token in `~/.claude/.credentials.json` expires after a few hours.
+  The script re-reads the file on every poll and, once it has expired, runs
+  `claude` to refresh it. If `claude auth status` is not enough, the fallback
+  print-mode request consumes a negligible amount of usage (one tiny Haiku
+  call per token lifetime). If the refresh token itself is revoked, run
+  `claude` interactively to log in again.
 - On HTTP 429 the script backs off exponentially (up to 1 h) before retrying;
   any other outcome returns to the normal `POLL_SECONDS` cadence.
 - TLS verification is disabled to mirror the display's `setInsecure()`. Pin the

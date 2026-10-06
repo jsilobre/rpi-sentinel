@@ -8,16 +8,13 @@ Type=simple
 # Adjust the user and paths to your Raspberry Pi / this repo's checkout.
 User=pi
 WorkingDirectory=/home/pi/rpi-sentinel/companion
-# Secrets (MQTT_HOST, MQTT_USER, MQTT_PASS, CLAUDE_OAUTH_TOKEN) live outside
-# the repo so they are never committed. Create this file with 600 perms, e.g.:
+# Secrets (MQTT_HOST, MQTT_USER, MQTT_PASS) live outside the repo so they are
+# never committed. Create this file with 600 perms, e.g.:
 #   MQTT_HOST=your-broker.example.com
 #   MQTT_USER=youruser
 #   MQTT_PASS=yourpass
-#   CLAUDE_OAUTH_TOKEN=<output of `claude setup-token`, valid 1 year>
-# Without CLAUDE_OAUTH_TOKEN the token is read from ~/.claude/.credentials.json
-# of the User above; it expires after a few hours unless `claude` runs on this
-# machine to refresh it. If CLAUDE_OAUTH_TOKEN is rejected, that file is used
-# as a fallback.
+# The Claude token is read from ~/.claude/.credentials.json of the User above
+# and refreshed through the `claude` CLI once expired (see CLAUDE_BIN).
 EnvironmentFile=/home/pi/usage-publisher.env
 Environment=MQTT_PORT=8883
 Environment=MQTT_PREFIX=rpi
@@ -25,6 +22,7 @@ Environment=MQTT_TLS=true
 Environment=POLL_SECONDS=600
 Environment=PATH=/usr/local/bin:/usr/bin:/bin
 # Environment=CLAUDE_CREDENTIALS=/home/pi/.claude/.credentials.json
+# Environment=CLAUDE_BIN=/home/pi/.local/bin/claude
 ExecStart=/usr/bin/python3 usage_publisher.py
 Restart=on-failure
 RestartSec=10
