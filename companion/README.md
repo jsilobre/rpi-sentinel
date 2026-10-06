@@ -83,7 +83,7 @@ journalctl -u usage-publisher -f
 | `MQTT_PREFIX`        | `rpi`                            | Topic prefix; must match the display config       |
 | `MQTT_TLS`           | `true`                           | Use TLS (insecure verify, like the display)       |
 | `POLL_SECONDS`       | `600`                            | Poll/publish interval; keep at 10 min or above — the endpoint rate-limits (HTTP 429) |
-| `CLAUDE_OAUTH_TOKEN` | — (off)                          | Token override, e.g. from `claude setup-token`    |
+| `CLAUDE_OAUTH_TOKEN` | — (off)                          | Long-lived token from `claude setup-token`; tried first, credentials file used if it is rejected |
 | `CLAUDE_CREDENTIALS` | `~/.claude/.credentials.json`    | Path to Claude Code's credentials file            |
 
 ## Caveats / honesty
@@ -96,6 +96,7 @@ journalctl -u usage-publisher -f
   Claude Code; the script re-reads the file on every poll to pick up rotations.
   If this Pi never runs `claude`, set `CLAUDE_OAUTH_TOKEN` from
   `claude setup-token` instead.
-- On HTTP 429 the script backs off exponentially (up to 1 h) before retrying.
+- On HTTP 429 the script backs off exponentially (up to 1 h) before retrying;
+  any other outcome returns to the normal `POLL_SECONDS` cadence.
 - TLS verification is disabled to mirror the display's `setInsecure()`. Pin the
   broker CA on both sides for production.

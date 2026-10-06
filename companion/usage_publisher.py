@@ -23,7 +23,9 @@ Environment:
     MQTT_TLS             default "true" (insecure verify, like the display)
     POLL_SECONDS         default 600; the endpoint rate-limits aggressive
                          polling (HTTP 429), so stay at 10 min or above
-    CLAUDE_OAUTH_TOKEN   optional token override (e.g. from `claude setup-token`)
+    CLAUDE_OAUTH_TOKEN   optional long-lived token (from `claude setup-token`),
+                         tried first; if the endpoint rejects it (401/403) the
+                         credentials file is tried as a fallback
     CLAUDE_CREDENTIALS   default ~/.claude/.credentials.json
 
 Dependency: paho-mqtt>=2.0
@@ -57,14 +59,38 @@ CREDENTIALS = Path(os.environ.get(
 log = logging.getLogger("usage-publisher")
 
 
-def oauth_token() -> str:
-    token = os.environ.get("CLAUDE_OAUTH_TOKEN")
-    if token:
-        return token
+def oauth_tokens() -> list[tuple[str, str]]:
+    """Candidate tokens as (source, token), in the order to try them."""
+    tokens = []
+    env_token = os.environ.get("CLAUDE_OAUTH_TOKEN")
+    if env_token:
+        tokens.append(("CLAUDE_OAUTH_TOKEN", env_token))
     # Re-read on every poll: Claude Code rotates the access token whenever
     # it runs on this machine.
-    data = json.loads(CREDENTIALS.read_text())
-    return data["claudeAiOauth"]["accessToken"]
+    try:
+        data = json.loads(CREDENTIALS.read_text())
+        tokens.append((str(CREDENTIALS), data["claudeAiOauth"]["accessToken"]))
+    except (OSError, ValueError, KeyError) as e:
+        if not tokens:
+            raise RuntimeError(f"no token: cannot read {CREDENTIALS}: {e}") from e
+    return tokens
+
+
+def fetch_usage_any() -> dict:
+    """Try each candidate token; fall through to the next on 401/403."""
+    rejected = []
+    for source, token in oauth_tokens():
+        try:
+            return fetch_usage(token)
+        except urllib.error.HTTPError as e:
+            if e.code not in (401, 403):
+                raise
+            rejected.append(f"{source} ({e.code})")
+    raise TokenRejected(", ".join(rejected))
+
+
+class TokenRejected(Exception):
+    pass
 
 
 def fetch_usage(token: str) -> dict:
@@ -125,29 +151,33 @@ def main() -> int:
         log.error("MQTT_HOST is required")
         return 1
 
-    interval = POLL_SECONDS
+    backoff = POLL_SECONDS
     while True:
+        # Only a 429 backs off; any other outcome returns to the normal
+        # cadence so a past rate-limit does not slow polling forever.
+        interval = POLL_SECONDS
         try:
-            usage = fetch_usage(oauth_token())
+            usage = fetch_usage_any()
             payload = build_payload(usage)
             if payload:
                 publish_payload(payload)
                 log.info("published %s", json.dumps(payload))
             else:
                 log.warning("usage response had no five_hour/seven_day windows")
-            interval = POLL_SECONDS
+        except TokenRejected as e:
+            log.warning("token rejected by %s -- expired? Run claude once on "
+                        "this machine to refresh it, or set CLAUDE_OAUTH_TOKEN "
+                        "from `claude setup-token`", e)
         except urllib.error.HTTPError as e:
             if e.code == 429:
-                interval = min(interval * 2, 3600)
+                backoff = interval = min(backoff * 2, 3600)
                 log.warning("rate-limited (429); next poll in %ds", interval)
-            elif e.code == 401:
-                log.warning("token rejected (401) -- expired? Run claude once on "
-                            "this machine to refresh it, or set CLAUDE_OAUTH_TOKEN "
-                            "from `claude setup-token`")
             else:
                 log.warning("usage endpoint HTTP %d: %s", e.code, e.reason)
         except Exception as e:
             log.warning("poll failed: %s", e)
+        if interval == POLL_SECONDS:
+            backoff = POLL_SECONDS
         time.sleep(interval)
 
 
