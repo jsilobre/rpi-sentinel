@@ -14,6 +14,8 @@ function saveLayout() {
   // Stacked geometry comes from CSS; saving it would overwrite the free-form
   // layout arranged on a wider window.
   if (isStackedLayout()) return;
+  // Same while a card is focused: the CSS has taken over every card's geometry.
+  if (isFocusMode()) return;
   const layout = loadLayout();
   document.querySelectorAll('.card[data-sensor-id]').forEach(c => {
     layout[c.dataset.sensorId] = {
@@ -85,7 +87,7 @@ function makeDraggable(card) {
   const head = card.querySelector('.sensor-head');
   if (!head) return;
   head.addEventListener('pointerdown', e => {
-    if (isStackedLayout()) return;
+    if (isStackedLayout() || isFocusMode()) return;
     if (e.pointerType === 'mouse' && e.button !== 0) return;
     if (e.target.closest('button, input, select, a, label')) return;
     const grid     = card.parentElement;
@@ -130,6 +132,8 @@ const cardResizeObserver = new ResizeObserver(() => {
 
 // ── Organize sensors alphabetically ─────────────────────────────────────────────
 function organizeSensors() {
+  // Organize arranges the free-form layout, so show it.
+  if (isFocusMode()) setFocus(null);
   const grid  = document.getElementById('sensors-grid');
   const cards = Array.from(grid.querySelectorAll('.card[data-sensor-id]'));
   if (!cards.length) return;
@@ -141,4 +145,64 @@ function organizeSensors() {
 
   saveLayout();
   updateGridHeight();
+}
+
+// ── Focus one chart ─────────────────────────────────────────────────────────────
+function isFocusMode() {
+  return focusedSensorId !== null;
+}
+
+// The sensor to focus when its card is created: the one focused before a reload.
+function loadFocus() {
+  try { return localStorage.getItem(FOCUS_KEY) || null; }
+  catch { return null; }
+}
+
+function syncFocusButton(card) {
+  const on = card.classList.contains('focused');
+  // More room, more time labels.
+  const chart = charts[card.dataset.sensorId];
+  if (chart) { chart.options.scales.x.ticks.maxTicksLimit = on ? 10 : 5; chart.update('none'); }
+  const btn = card.querySelector('.focus-btn');
+  if (!btn) return;
+  btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+  btn.title = on ? 'Exit focus (Esc)' : 'Focus this chart';
+  btn.setAttribute('aria-label', btn.title);
+}
+
+// Focus `sensorId`'s card, or leave focus mode with null. The focused card moves
+// into #focus-slot; on exit it goes back into the grid at its alphabetical place,
+// where its saved left/top/width/height apply again.
+function setFocus(sensorId) {
+  const area = document.getElementById('sensors-area');
+  const slot = document.getElementById('focus-slot');
+  const grid = document.getElementById('sensors-grid');
+
+  const prev = slot.querySelector('.card[data-sensor-id]');
+  if (prev) {
+    prev.classList.remove('focused');
+    const cards = Array.from(grid.querySelectorAll('.card[data-sensor-id]'));
+    grid.insertBefore(prev, nextCardInOrder(cards, prev.dataset.sensorId));
+    syncFocusButton(prev);
+  }
+
+  const card = sensorId === null ? null : document.getElementById('card-' + domId(sensorId));
+  focusedSensorId = card ? sensorId : null;
+  if (card) {
+    slot.appendChild(card);
+    card.classList.add('focused');
+    syncFocusButton(card);
+  }
+  area.classList.toggle('focus-mode', !!card);
+  try {
+    if (card) localStorage.setItem(FOCUS_KEY, sensorId);
+    else      localStorage.removeItem(FOCUS_KEY);
+  } catch {}
+  updateGridHeight();
+  if (card && typeof area.scrollIntoView === 'function' && area.getBoundingClientRect().top < 0)
+    area.scrollIntoView({ block: 'start', behavior: 'smooth' });
+}
+
+function toggleFocus(sensorId) {
+  setFocus(focusedSensorId === sensorId ? null : sensorId);
 }

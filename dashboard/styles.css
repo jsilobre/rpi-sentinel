@@ -89,6 +89,31 @@ canvas{display:block;width:100%!important;height:100%!important}
    browser; pinches still reach the chart. */
 .chart-wrap canvas{touch-action:pan-y!important}
 
+/* Focus mode: the focused card sits in #focus-slot and fills most of the area;
+   the others shrink into a scrollable side column (a strip when stacked, below).
+   Their saved free-form geometry stays inline and is overridden, not changed. */
+.focus-btn{display:inline-flex;align-items:center;justify-content:center;flex:none;width:24px;height:22px;padding:0;
+  background:var(--surface-2);color:var(--muted);border:1px solid var(--border);border-radius:4px;cursor:pointer}
+.focus-btn:hover{color:var(--text);border-color:var(--muted-2)}
+.focus-btn svg{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.focus-btn .icon-collapse,.card.focused .focus-btn .icon-expand{display:none}
+.card.focused .focus-btn .icon-collapse{display:block}
+.card.focused .focus-btn{color:var(--accent);border-color:var(--accent)}
+.sensors-area{scroll-margin-top:64px}
+.focus-slot{display:none}
+.sensors-area.focus-mode{display:grid;grid-template-columns:minmax(0,1fr) 280px;gap:12px;align-items:start}
+.sensors-area.focus-mode:not(:has(.sensors-grid .card)){grid-template-columns:minmax(0,1fr)}
+.focus-mode .focus-slot{display:block;min-width:0}
+.focus-mode .focus-slot .card{position:static;display:flex;flex-direction:column;width:auto!important;
+  height:max(380px,calc(100vh - 170px))!important;resize:none;overflow:hidden}
+.focus-mode .sensors-grid{display:flex;flex-direction:column;gap:12px;min-height:0!important;min-width:0;
+  max-height:max(380px,calc(100vh - 170px));overflow-y:auto}
+.focus-mode .sensors-grid .card{position:static;flex:none;width:auto!important;height:190px!important;
+  min-width:0;min-height:0;resize:none;padding:10px 12px}
+.focus-mode .sensors-grid .sensor-head{cursor:default;touch-action:auto}
+.focus-mode .sensors-grid .sensor-value{font-size:1.4rem}
+.focus-mode .sensors-grid .stats,.focus-mode .sensors-grid .chart-hint,.focus-mode .hint-layout{display:none}
+
 /* Right rail — alerts */
 .rail .card{padding:0;overflow:hidden}
 .rail-head{padding:10px 14px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px}
@@ -192,6 +217,14 @@ label.config-label{cursor:pointer}
   .sensors-grid .card{position:static;width:auto!important;height:300px!important;min-width:0;resize:none}
   .sensor-head{cursor:default;touch-action:auto}
   #organize-btn,.hint-layout{display:none}
+  /* Focus mode: focused chart full width on top, the others in a strip below
+     that scrolls sideways (canvases let horizontal swipes through to it). */
+  .sensors-area.focus-mode{display:flex;flex-direction:column;align-items:stretch;gap:12px}
+  .focus-mode .focus-slot .card{height:max(320px,60vh)!important}
+  .focus-mode .sensors-grid{flex-direction:row;max-height:none;overflow-x:auto;overflow-y:hidden;
+    scroll-snap-type:x mandatory;padding-bottom:6px}
+  .focus-mode .sensors-grid .card{flex:0 0 min(72vw,260px);height:170px!important;scroll-snap-align:start}
+  .focus-mode .sensors-grid .chart-wrap canvas{touch-action:pan-x pan-y!important}
   .custom-range{margin-left:0;flex-basis:100%}
   .range-field{flex:1 1 220px}
   .range-input{flex:1;width:auto;min-width:0}
@@ -214,6 +247,8 @@ label.config-label{cursor:pointer}
   .icon-btn{justify-content:center}
   .icon-btn.small{min-height:36px}
   .reset-zoom-btn{padding:8px 12px;font-size:12px}
+  .focus-btn{width:40px;height:36px}
+  .focus-btn svg{width:18px;height:18px}
   .config-input{font-size:16px;min-height:40px}
   .range-input{width:auto}
   .config-enabled{width:20px;height:20px}

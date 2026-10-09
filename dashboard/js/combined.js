@@ -153,7 +153,7 @@ function setViewMode(mode) {
   viewMode = mode;
   try { localStorage.setItem(VIEWMODE_KEY, mode); } catch {}
   const combined = mode === 'combined';
-  document.getElementById('sensors-grid').style.display  = combined ? 'none' : '';
+  document.getElementById('sensors-area').style.display  = combined ? 'none' : '';
   document.getElementById('combined-wrap').style.display = combined ? ''     : 'none';
   document.getElementById('organize-btn').style.display  = combined ? 'none' : '';
   const btn = document.getElementById('viewmode-btn');

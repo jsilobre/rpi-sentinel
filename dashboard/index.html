@@ -53,8 +53,13 @@
   <main>
     <section>
       <div class="section-title">Sensors <span class="count-pill" id="sensor-count">0</span></div>
-      <div class="sensors-grid" id="sensors-grid">
-        <div class="card" id="placeholder-card"><p class="placeholder">Waiting for sensor data…</p></div>
+      <!-- In focus mode the focused card moves into #focus-slot and the grid
+           becomes the side column (a horizontal strip on narrow screens). -->
+      <div class="sensors-area" id="sensors-area">
+        <div class="focus-slot" id="focus-slot"></div>
+        <div class="sensors-grid" id="sensors-grid">
+          <div class="card" id="placeholder-card"><p class="placeholder">Waiting for sensor data…</p></div>
+        </div>
       </div>
       <div id="combined-wrap" style="display:none">
         <div class="card combined-card">

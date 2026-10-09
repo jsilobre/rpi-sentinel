@@ -95,7 +95,8 @@ function loadHelpers() {
       parsePollIntervalSeconds, isSensorShown, knownSensorIds, disabledSensorIds,
       unitFor, axisTitle, gridColumns, positionCardInGrid,
       allowPanStart, isStackedLayout, saveLayout, placeCard, nextCardInOrder,
-      STACKED_LAYOUT_QUERY, LAYOUT_KEY,
+      STACKED_LAYOUT_QUERY, LAYOUT_KEY, isFocusMode, loadFocus, FOCUS_KEY,
+      setFocused: (id) => { focusedSensorId = id; },
       setWindow: (w) => { currentWindow = w; },
       WINDOWS,
     };
@@ -174,6 +175,38 @@ test('saveLayout leaves the free-form layout alone while stacked', () => {
   assert.equal(H.store[H.LAYOUT_KEY], saved);
   delete H.media[H.STACKED_LAYOUT_QUERY];
   delete H.store[H.LAYOUT_KEY];
+});
+
+test('saveLayout leaves the free-form layout alone while a chart is focused', () => {
+  // Focus mode sizes every card from CSS; saving that would lose the layout.
+  const saved = JSON.stringify({ temp1: { left: 392, top: 0, width: 380, height: 300 } });
+  H.store[H.LAYOUT_KEY] = saved;
+  H.setFocused('temp1');
+  assert.equal(H.isFocusMode(), true);
+  assert.doesNotThrow(() => H.saveLayout());
+  assert.equal(H.store[H.LAYOUT_KEY], saved);
+  H.setFocused(null);
+  assert.equal(H.isFocusMode(), false);
+  delete H.store[H.LAYOUT_KEY];
+});
+
+test('loadFocus returns the sensor focused before a reload', () => {
+  assert.equal(H.loadFocus(), null);
+  H.store[H.FOCUS_KEY] = 'temp1';
+  assert.equal(H.loadFocus(), 'temp1');
+  delete H.store[H.FOCUS_KEY];
+});
+
+test('index.html has the focus slot next to the grid', () => {
+  const html = read('index.html');
+  assert.match(html, /id="sensors-area"[\s\S]*id="focus-slot"[\s\S]*id="sensors-grid"/);
+});
+
+test('styles.css turns the focus side column into a strip when stacked', () => {
+  const css   = read('styles.css');
+  const start = css.indexOf(`@media ${H.STACKED_LAYOUT_QUERY}{`);
+  const block = css.slice(start, css.indexOf('\n}', start));
+  assert.match(block, /\.focus-mode \.sensors-grid\{flex-direction:row;[^}]*overflow-x:auto/);
 });
 
 test('placeCard keeps a saved layout unclamped while stacked', () => {

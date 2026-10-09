@@ -75,6 +75,10 @@ function ensureCard(sensorId, metric) {
       <span class="metric-tag"></span>
       <span class="status ok" id="status-${sid}">--</span>
       <button class="reset-zoom-btn" id="reset-zoom-${sid}" type="button">&#8635; Reset</button>
+      <button class="focus-btn" type="button" aria-pressed="false" title="Focus this chart" aria-label="Focus this chart">
+        <svg class="icon-expand" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>
+        <svg class="icon-collapse" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/></svg>
+      </button>
     </div>
     <div class="sensor-row">
       <span class="sensor-value" id="val-${sid}">--</span>
@@ -92,6 +96,7 @@ function ensureCard(sensorId, metric) {
   card.querySelector('.sensor-name').textContent = sensorId;
   card.querySelector('.metric-tag').textContent  = metric;
   card.querySelector('.reset-zoom-btn').addEventListener('click', () => resetZoom(sensorId));
+  card.querySelector('.focus-btn').addEventListener('click', () => toggleFocus(sensorId));
   const grid = document.getElementById('sensors-grid');
   const existingCards  = Array.from(grid.querySelectorAll('.card[data-sensor-id]'));
   const existingBefore = existingCards.length;
@@ -179,6 +184,7 @@ function ensureCard(sensorId, metric) {
   });
 
   updateAnnotations(sensorId);
+  if (!isFocusMode() && loadFocus() === sensorId) setFocus(sensorId);
   requestHydration(sensorId);
   // If a persisted historical window is active, also fetch the windowed view.
   if (currentWindow !== 'live') requestSingleWindowHydration(sensorId, currentWindow);

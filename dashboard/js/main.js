@@ -38,6 +38,14 @@ function setMenuOpen(open) {
   headerActions.classList.toggle('open', open);
   menuBtn.setAttribute('aria-expanded', String(open));
 }
+// Focus mode: Escape leaves it, unless the menu or a dialog is open. Registered
+// before their own Escape handlers, which would otherwise close them first.
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Escape' || !isFocusMode()) return;
+  if (document.querySelector('.modal-backdrop.open, .header-actions.open')) return;
+  setFocus(null);
+});
+
 menuBtn.addEventListener('click', () => setMenuOpen(!headerActions.classList.contains('open')));
 // Picking an action closes the menu (its own handler has already run by the
 // time the click bubbles here), as does a tap outside it or Escape.
@@ -397,6 +405,7 @@ client.on('message', (topic, message) => {
         delete sensorColor[sensorId];
         // Keep the legend choice of a merely disabled sensor for when it returns.
         if (!disabledSensorIds.has(sensorId)) combinedHidden.delete(sensorId);
+        if (focusedSensorId === sensorId) setFocus(null);
         const cardEl = document.getElementById('card-' + domId(sensorId));
         if (cardEl) {
           cardResizeObserver.unobserve(cardEl);
@@ -409,7 +418,7 @@ client.on('message', (topic, message) => {
     updateGridHeight();
 
     const grid = document.getElementById('sensors-grid');
-    if (!grid.querySelector('.card')) {
+    if (!document.querySelector('#sensors-area .card')) {
       const ph = document.createElement('div');
       ph.id        = 'placeholder-card';
       ph.className = 'card';
@@ -418,7 +427,7 @@ client.on('message', (topic, message) => {
     }
 
     document.getElementById('sensor-count').textContent =
-      grid.querySelectorAll('.card:not(#placeholder-card)').length;
+      document.querySelectorAll('#sensors-area .card[data-sensor-id]').length;
 
     renderConfigPanel();
     reconcilePendingSaves();
