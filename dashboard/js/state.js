@@ -107,3 +107,10 @@ const LAYOUT_GAP      = 12;
 // width in DOM order (alphabetical), and cannot be dragged or resized. Must match
 // the `@media` block in styles.css that does the stacking.
 const STACKED_LAYOUT_QUERY = '(max-width: 700px)';
+
+// ── Focus mode (per-sensor view) ───────────────────────────────────────────────
+// One card can be focused: it moves into #focus-slot and takes most of the room,
+// the others shrink into a side column (a horizontal strip when stacked). The
+// free-form layout is left untouched meanwhile and comes back on exit.
+const FOCUS_KEY = 'rpi-sentinel-focus';
+let   focusedSensorId = null;

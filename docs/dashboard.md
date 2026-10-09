@@ -107,6 +107,16 @@ first reading:
   thresholds. On long cloud windows it shows the bucket average with a
   min/max band.
 
+**Focus.** The ⤢ button in a card's header focuses that chart: it takes most
+of the sensors area (with more time labels), and the other cards shrink to a
+compact column on its right, without stats or hints, each with its own ⤢ to
+switch focus. On a stacked (≤ 700 px) screen the focused chart is full width on
+top and the others form a strip below that scrolls sideways. ⤡ on the focused
+card, or Escape, leaves focus. Dragging, resizing and layout saving are off
+while focused; ⊞ Organize leaves focus first. The free-form layout is not
+touched and comes back as it was. The focused sensor is remembered across
+reloads.
+
 **Combined view.** One chart with every sensor, one Y axis per metric (the
 first on the left, the others on the right). Clicking a legend entry hides
 or shows that sensor; the choice is remembered.
@@ -232,6 +242,7 @@ Preferences are kept in `localStorage`, per browser and device:
 | `rpi-sentinel-viewmode` | `multi` (per-sensor cards) or `combined` |
 | `rpi-sentinel-combined-hidden` | Sensor ids hidden from the combined chart |
 | `rpi-sentinel-layout` | `{ "<sensor id>": { left, top, width, height } }` for the free-form layout |
+| `rpi-sentinel-focus` | Id of the focused sensor; absent when no chart is focused |
 
 Clearing site data resets all of them; nothing else is stored client-side.
 
