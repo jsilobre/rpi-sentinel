@@ -3,6 +3,8 @@ add_library(sensors STATIC
     DS18B20Reader.cpp
     DHT11Reader.cpp
     SGP30Reader.cpp
+    Sgp30Device.cpp
+    Sgp30Protocol.cpp
     SimulatedSensor.cpp
 )
 

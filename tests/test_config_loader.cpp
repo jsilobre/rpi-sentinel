@@ -226,3 +226,23 @@ TEST(ConfigLoader, SensorEnabledSurvivesSaveAndReload)
     EXPECT_TRUE(reloaded->sensors[0].enabled);
     EXPECT_FALSE(reloaded->sensors[1].enabled);
 }
+
+TEST(ConfigLoader, Sgp30OptionsSurviveSaveAndReload)
+{
+    auto path = write_tmp(R"({
+        "sensors": [{
+            "id": "sgp30-tvoc", "type": "sgp30", "metric": "tvoc",
+            "device_path": "/dev/i2c-1",
+            "baseline_path": "data/sgp30.txt",
+            "humidity_device_path": "/sys/bus/iio/devices/iio:device1"
+        }]
+    })");
+    auto cfg = rpi::load_config(path);
+    ASSERT_TRUE(cfg.has_value()) << cfg.error();
+    ASSERT_TRUE(rpi::save_config(path, *cfg).has_value());
+
+    auto reloaded = rpi::load_config(path);
+    ASSERT_TRUE(reloaded.has_value()) << reloaded.error();
+    EXPECT_EQ(reloaded->sensors[0].baseline_path,        "data/sgp30.txt");
+    EXPECT_EQ(reloaded->sensors[0].humidity_device_path, "/sys/bus/iio/devices/iio:device1");
+}

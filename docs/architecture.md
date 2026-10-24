@@ -71,6 +71,9 @@ No lower layer depends on a higher layer.
 | `ISensorReader.hpp` | Abstract interface. Defines `read()` and `sensor_id()`. |
 | `DS18B20Reader.hpp/cpp` | Reads `/sys/bus/w1/devices/<id>/temperature` (Linux 1-Wire kernel driver). |
 | `DHT11Reader.hpp/cpp` | Reads temperature and humidity via the Linux IIO kernel driver. |
+| `SGP30Reader.hpp/cpp` | eCO2 / TVOC from an SGP30. With `device_path` `/dev/i2c-N` it reads a shared `Sgp30Device`; with an IIO directory it reads the kernel driver (legacy, no baseline). |
+| `Sgp30Device.hpp/cpp` | Drives one SGP30 from user space in its own `std::jthread`: `measure_iaq` every second, IAQ baseline restored at start and saved hourly, absolute-humidity compensation from a DHT11. One instance per bus, shared by the eco2 and tvoc readers. |
+| `Sgp30Protocol.hpp/cpp` | Pure SGP30 helpers: command codes, CRC-8, absolute humidity (8.8 fixed point), baseline file load/save. |
 | `CpuTempReader.hpp/cpp` | Reads the Raspberry Pi SoC temperature from `/sys/class/thermal/thermal_zone0/temp` (millidegrees Celsius, divided by 1000). The `device_path` field in `SensorConfig` can override the thermal zone. |
 | `SimulatedSensor.hpp/cpp` | Sensor driven by a generator function (`std::function<float()>`). Uses `make_for_metric()` to select a metric-appropriate waveform. |
 

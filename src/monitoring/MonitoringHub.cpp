@@ -12,6 +12,9 @@
 
 namespace rpi {
 
+// Relative to the working directory, like history.db_path.
+static constexpr std::string_view kDefaultSgp30BaselinePath = "data/sgp30_baseline.txt";
+
 static auto make_sensor(const SensorConfig& sc) -> std::unique_ptr<ISensorReader>
 {
     switch (sc.type) {
@@ -20,7 +23,13 @@ static auto make_sensor(const SensorConfig& sc) -> std::unique_ptr<ISensorReader
         case SensorType::DHT11:
             return std::make_unique<DHT11Reader>(sc.device_path, sc.id, sc.metric);
         case SensorType::SGP30:
-            return std::make_unique<SGP30Reader>(sc.device_path, sc.id, sc.metric);
+            return std::make_unique<SGP30Reader>(sc.device_path, sc.id, sc.metric,
+                Sgp30Options{
+                    .baseline_path        = sc.baseline_path.empty()
+                                              ? std::string{kDefaultSgp30BaselinePath}
+                                              : sc.baseline_path,
+                    .humidity_device_path = sc.humidity_device_path,
+                });
         case SensorType::Simulated:
             return std::make_unique<SimulatedSensor>(sc.id, sc.metric,
                 SimulatedSensor::make_for_metric(sc.metric));
