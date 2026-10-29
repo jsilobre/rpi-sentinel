@@ -326,6 +326,75 @@ Set `device_path` in `config.json`:
 
 ---
 
+### Wiring the SGP30 (air quality)
+
+The SGP30 corrects its own long-term drift with an on-chip baseline
+algorithm, which only works if `measure_iaq` is called every second, and
+whose state is lost on every power-up or `iaq_init`. Without a saved
+baseline the sensor needs **12 h of early operation** before its TVOC/eCO2
+values are reliable. The daemon therefore drives the chip itself on the I2C
+bus (`Sgp30Device`):
+
+- `measure_iaq` once per second, in its own thread, whatever `poll_interval_ms` is;
+- baseline restored at start-up from `baseline_path` (default
+  `data/sgp30_baseline.txt`, i.e. `/var/lib/rpi-sentinel/data/` under systemd)
+  if it is less than 7 days old, then saved every hour — but a fresh chip's
+  baseline is only saved after its first 12 h;
+- absolute humidity computed from the DHT11 in `humidity_device_path` and sent
+  to the chip every minute (optional);
+- no reading is reported during the 15 s after `iaq_init` (the chip returns
+  fixed 400 ppm / 0 ppb then).
+
+Restarting the daemon or rebooting the Pi is not needed to "fix" drift — it
+only restarts the warm-up. If TVOC stays high for days, the room is probably
+never aired: the algorithm assumes it sees clean air from time to time.
+
+Enable I2C (`sudo raspi-config` → Interface Options → I2C, or
+`dtparam=i2c_arm=on` in `/boot/firmware/config.txt`) and check the chip
+answers at `0x58`:
+
+```bash
+sudo i2cdetect -y 1        # "58" in the grid (or "UU" if the kernel driver holds it)
+```
+
+The `sgp30` kernel module must **not** be bound to the chip, otherwise both
+would talk to it. If you used it before:
+
+```bash
+sudo modprobe -r sgp30
+echo "blacklist sgp30" | sudo tee /etc/modprobe.d/rpi-sentinel-sgp30.conf
+# and remove any `echo sgp30 0x58 > .../new_device` from your boot scripts
+```
+
+Under systemd the service user needs the `i2c` group:
+
+```bash
+sudo systemctl edit rpi-sentinel
+#   [Service]
+#   SupplementaryGroups=i2c
+```
+
+Configure both metrics on the same bus (they share one `Sgp30Device`):
+
+```json
+{
+  "id": "sgp30-tvoc",
+  "type": "sgp30",
+  "metric": "tvoc",
+  "device_path": "/dev/i2c-1",
+  "humidity_device_path": "/sys/bus/iio/devices/iio:device1",
+  "threshold_warn": 150.0,
+  "threshold_crit": 500.0
+}
+```
+
+`humidity_device_path` is the DHT11's IIO directory (the one whose
+`name` file reads `dht11`). A `device_path` under `/sys/bus/iio/devices/`
+still selects the legacy kernel-driver backend, without baseline
+persistence or humidity compensation.
+
+---
+
 ## Reading the CPU (SoC) temperature
 
 No extra hardware needed — the kernel exposes the temperature via sysfs.

@@ -24,6 +24,11 @@ struct SensorConfig {
     // A disabled sensor is neither read nor reported; toggled at runtime
     // from the dashboard and persisted like the thresholds.
     bool        enabled        = true;
+    // SGP30 on an I2C bus only (device_path "/dev/i2c-N"): where the IAQ
+    // baseline is persisted, and the DHT11 IIO directory used for humidity
+    // compensation (empty: none).
+    std::string baseline_path;
+    std::string humidity_device_path;
 };
 
 struct MqttConfig {

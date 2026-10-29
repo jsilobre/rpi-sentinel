@@ -100,13 +100,20 @@
             "threshold_crit": 0.9
         },
         {
-            // SGP30 air quality sensor (I2C via Linux IIO driver).
-            // device_path: IIO device directory, e.g. /sys/bus/iio/devices/iio:device0
-            // Load the kernel module: sudo modprobe sgp30
+            // SGP30 air quality sensor, driven directly on the I2C bus
+            // (the sgp30 kernel module must NOT be bound to it; see
+            // docs/build-guide.md). The daemon persists the IAQ baseline to
+            // baseline_path (default data/sgp30_baseline.txt) so a restart
+            // does not trigger the 12 h early-operation phase again, and
+            // compensates humidity from the DHT11 IIO directory given in
+            // humidity_device_path (optional).
+            // Legacy: device_path "/sys/bus/iio/devices/iio:deviceN" reads the
+            // kernel IIO driver instead, without baseline or compensation.
             "id": "sgp30-eco2",
             "type": "sgp30",
             "metric": "eco2",
-            "device_path": "/sys/bus/iio/devices/iio:device0",
+            "device_path": "/dev/i2c-1",
+            "humidity_device_path": "/sys/bus/iio/devices/iio:device1",
             "threshold_warn": 1000.0,
             "threshold_crit": 2000.0
         },
@@ -114,7 +121,8 @@
             "id": "sgp30-tvoc",
             "type": "sgp30",
             "metric": "tvoc",
-            "device_path": "/sys/bus/iio/devices/iio:device0",
+            "device_path": "/dev/i2c-1",
+            "humidity_device_path": "/sys/bus/iio/devices/iio:device1",
             "threshold_warn": 150.0,
             "threshold_crit": 500.0
         }

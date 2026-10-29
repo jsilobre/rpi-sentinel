@@ -15,6 +15,7 @@ add_executable(rpi_tests
     test_gpio_alert.cpp
     test_history_store.cpp
     test_sgp30_reader.cpp
+    test_sgp30_device.cpp
 )
 
 target_link_libraries(rpi_tests PRIVATE

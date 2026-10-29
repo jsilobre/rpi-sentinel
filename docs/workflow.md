@@ -189,6 +189,11 @@ SensorConfig::type
    ├─ SensorType::DHT11      →  DHT11Reader(device_path, id, metric)
    │                               └─ reads via Linux IIO driver
    │
+   ├─ SensorType::SGP30      →  SGP30Reader(device_path, id, metric, Sgp30Options)
+   │                               ├─ "/dev/i2c-N" → shared Sgp30Device (1 Hz thread,
+   │                               │                 baseline persistence, humidity comp.)
+   │                               └─ IIO directory → reads the kernel driver (legacy)
+   │
    └─ SensorType::CpuTemp    →  CpuTempReader(id, thermal_path)
                                   └─ reads /sys/class/thermal/thermal_zone0/temp
                                   └─ device_path overrides the thermal zone (optional)

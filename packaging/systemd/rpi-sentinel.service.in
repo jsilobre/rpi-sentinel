@@ -69,8 +69,12 @@ UMask=0077
 LimitNOFILE=4096
 
 # ── Hardware access ──────────────────────────────────────────────────────────
-# The DS18B20, DHT11, SGP30 and cpu_temp readers only read from sysfs and work
-# as-is. GpioAlert additionally WRITES to /sys/class/gpio/{export,gpioN/value},
+# The DS18B20, DHT11, cpu_temp and IIO-mode SGP30 readers only read from sysfs
+# and work as-is. An SGP30 on /dev/i2c-N (the default) needs the i2c group —
+# add via `systemctl edit rpi-sentinel`:
+#   [Service]
+#   SupplementaryGroups=i2c
+# GpioAlert additionally WRITES to /sys/class/gpio/{export,gpioN/value},
 # which needs two relaxations — add them via `systemctl edit rpi-sentinel`:
 #   [Service]
 #   SupplementaryGroups=gpio     # /sys/class/gpio is root:gpio 0660 on RPi OS
