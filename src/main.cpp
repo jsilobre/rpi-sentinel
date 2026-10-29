@@ -21,6 +21,7 @@
 
 #include <csignal>
 #include <chrono>
+#include <cstdio>
 #include <filesystem>
 #include <format>
 #include <memory>
@@ -35,6 +36,10 @@ static void signal_handler(int) { g_running = 0; }
 
 int main(int argc, char* argv[])
 {
+    // Under systemd stdout is a pipe, hence fully buffered: log lines would
+    // only reach the journal when the buffer fills or the daemon exits.
+    std::setvbuf(stdout, nullptr, _IOLBF, 0);
+
     std::signal(SIGINT,  signal_handler);
     std::signal(SIGTERM, signal_handler);
 
